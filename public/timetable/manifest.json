@@ -1,11 +1,11 @@
 {
-  "updatedAt": "2026-09-28T08:11:16+09:00",
-  "updatedAtLabel": "2026年9月28日 8:11更新",
+  "updatedAt": "2026-09-28T08:21:28+09:00",
+  "updatedAtLabel": "2026年9月28日 8:21更新",
   "images": [
     {
       "file": "slot-0.jpg",
-      "hash": "26be633dc9e5a410b9b3bf56a357869bdf1570f6a7d554d020d2f5a3070624db",
-      "bytes": 132322
+      "hash": "05d00bbc184f66bdc168cd6c759d4b862cfe282ec7ad30c80d5a9cf0d543797a",
+      "bytes": 131608
     }
   ]
 }
