@@ -64,6 +64,8 @@ jobs:
 
       - name: Commit on change
         if: steps.sync.outputs.changed == 'true'
+        env:
+          TIMETABLE_PUSH_TOKEN: ${{ secrets.TIMETABLE_PUSH_TOKEN }}
         run: |
           git config user.name "timetable-bot"
           git config user.email "timetable-bot@users.noreply.github.com"
@@ -71,7 +73,13 @@ jobs:
           git commit -m "時間割を更新 ($(date '+%Y-%m-%d %H:%M'))"
           # 手動dispatchの重なり等で先に進んでいた場合に備えて取り込んでからpush
           git pull --rebase
-          git push
+          # mainは保護branchのためGITHUB_TOKENではpushできない（GH006）。
+          # branch保護のバイパス許可を持つ所有者のPAT（TIMETABLE_PUSH_TOKEN）でpushする。
+          if [ -z "$TIMETABLE_PUSH_TOKEN" ]; then
+            echo "::error::TIMETABLE_PUSH_TOKEN が未設定のためpushできません" >&2
+            exit 1
+          fi
+          git push "https://x-access-token:${TIMETABLE_PUSH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:main
 
   # GITHUB_TOKENでのpushはdeploy.ymlを起動しない仕様のため、
   # 差分ありの場合はこのワークフロー内でPagesデプロイまで行う。
