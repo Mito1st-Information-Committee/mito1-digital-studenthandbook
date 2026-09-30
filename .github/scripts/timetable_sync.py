@@ -48,6 +48,10 @@ IMG_PREFIX = "https://docs.google.com/sheets-images-rt/"
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 OUT_DIR = Path(os.environ.get("TIMETABLE_OUT_DIR", REPO_ROOT / "public" / "timetable"))
 MANIFEST_NAME = "manifest.json"
+# 過去分アーカイブ: public/timetable/history/YYYY-MM-DD/ + history.json
+# 最新 + 過去を含め最大7日分（7件の日付フォルダ）を保持する。
+HISTORY_KEEP = int(os.environ.get("TIMETABLE_HISTORY_KEEP", "7"))
+HISTORY_INDEX_NAME = "history.json"
 WORKERS_URL = os.environ.get(
     "TIMETABLE_WORKERS_URL",
     "https://mito1-hundbook.asanuma-ryuto.workers.dev",
@@ -136,6 +140,7 @@ def sync():
     manifest_path = OUT_DIR / MANIFEST_NAME
     old_hashes = []
     old_files_ok = False
+    old_manifest = None
     if manifest_path.exists():
         try:
             old_manifest = json.loads(manifest_path.read_text())
@@ -150,6 +155,13 @@ def sync():
     new_set, old_set = set(new_hashes), set(old_hashes)
     if new_set == old_set and old_files_ok:
         log("ハッシュ一致 → 更新なし")
+        # 導入直後で履歴が空の場合のみ今日分を補完する（要コミットのためchanged扱い・通知なし）
+        try:
+            if old_manifest and backfill_today_history_if_empty(old_manifest):
+                return {"changed": True, "notify": False, "count": len(images),
+                        "updatedAt": old_manifest.get("updatedAt", ""), "reason": "backfill-history"}
+        except Exception as e:
+            log(f"バックフィルに失敗（無視）: {e}")
         return {"changed": False, "reason": "unchanged", "count": len(images)}
     notify = not (new_set < old_set)
     if not notify:
@@ -173,8 +185,141 @@ def sync():
     }
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     log(f"更新あり → {len(entries)}枚を保存 (notify={notify})")
+    try:
+        archive_snapshot(now, manifest, images)
+    except Exception as e:
+        log(f"履歴保存に失敗（最新表示には影響なし）: {e}")
     return {"changed": True, "notify": notify, "count": len(entries),
             "updatedAt": manifest["updatedAt"]}
+
+
+def archive_snapshot(now, manifest, images):
+    """当日分のスナップショットを history/YYYY-MM-DD/ に保存し、history.json を更新する.
+
+    images は {"blob", "hash", "bytes", "ext"} または
+    {"file", "hash", "bytes"}（バックフィル時）の混在を許容する。
+    同一日の複数回更新は上書き（その日の最新を残す）。
+    古い日付フォルダは HISTORY_KEEP 件を超えた分だけ削除する。
+    """
+    date_str = now.strftime("%Y-%m-%d")
+    hdir = OUT_DIR / "history" / date_str
+    hdir.mkdir(parents=True, exist_ok=True)
+    hentries = []
+    for i, im in enumerate(images):
+        ext = im.get("ext") or (im.get("file", "").rsplit(".", 1)[-1] if "." in im.get("file", "") else "bin")
+        fname = f"slot-{i}.{ext}"
+        dest = hdir / fname
+        blob = im.get("blob")
+        if blob is not None:
+            dest.write_bytes(blob)
+            size = len(blob)
+        else:
+            src = OUT_DIR / im["file"]
+            data = src.read_bytes()
+            dest.write_bytes(data)
+            size = len(data)
+        hentries.append({"file": fname, "hash": im["hash"], "bytes": im.get("bytes", size)})
+    # 日付フォルダ内の古いslotファイルを掃除
+    for stale in hdir.glob("slot-*.*"):
+        if stale.name not in {e["file"] for e in hentries}:
+            try:
+                stale.unlink()
+            except Exception:
+                pass
+    hmanifest = {
+        "date": date_str,
+        "updatedAt": manifest.get("updatedAt", now.isoformat(timespec="seconds")),
+        "updatedAtLabel": manifest.get("updatedAtLabel", ""),
+        "images": hentries,
+    }
+    (hdir / MANIFEST_NAME).write_text(json.dumps(hmanifest, ensure_ascii=False, indent=2) + "\n")
+
+    # history.json インデックスを更新（日付の降順・最大HISTORY_KEEP件）
+    hist_path = OUT_DIR / HISTORY_INDEX_NAME
+    items = []
+    if hist_path.exists():
+        try:
+            loaded = json.loads(hist_path.read_text())
+            if isinstance(loaded, list):
+                items = loaded
+            elif isinstance(loaded, dict) and isinstance(loaded.get("items"), list):
+                items = loaded["items"]
+        except Exception as e:
+            log(f"history.json読み取り失敗（作り直し）: {e}")
+    items = [it for it in items if isinstance(it, dict) and it.get("date") != date_str]
+    items.append({
+        "date": date_str,
+        "updatedAt": hmanifest["updatedAt"],
+        "updatedAtLabel": hmanifest["updatedAtLabel"],
+        "dir": f"history/{date_str}",
+        "images": hentries,
+    })
+    # 日付降順に並べ替え（date が無い旧形式は末尾）
+    items.sort(key=lambda it: (it.get("date") or "", it.get("updatedAt") or ""), reverse=True)
+    kept, dropped = items[:HISTORY_KEEP], items[HISTORY_KEEP:]
+    hist_path.write_text(json.dumps(kept, ensure_ascii=False, indent=2) + "\n")
+    # 保持外の日付フォルダを削除
+    for it in dropped:
+        d = it.get("date")
+        if d:
+            _rm_history_dir(d)
+    # インデックスに無い古いフォルダ（手動削除漏れ等）も掃除
+    try:
+        keep_dates = {it.get("date") for it in kept if isinstance(it, dict)}
+        hist_root = OUT_DIR / "history"
+        if hist_root.exists():
+            for child in hist_root.iterdir():
+                if child.is_dir() and child.name not in keep_dates:
+                    # YYYY-MM-DD 形式のものだけ消す（安全弁）
+                    if len(child.name) == 10 and child.name[4] == "-" and child.name[7] == "-":
+                        _rm_history_dir(child.name)
+    except Exception as e:
+        log(f"履歴掃除に失敗（無視）: {e}")
+    log(f"履歴保存 → {date_str}（保持{len(kept)}件）")
+
+
+def _rm_history_dir(date_str):
+    import shutil
+    target = OUT_DIR / "history" / date_str
+    try:
+        if target.exists():
+            shutil.rmtree(target)
+            log(f"古い履歴を削除: {date_str}")
+    except Exception as e:
+        log(f"履歴削除に失敗 {date_str}: {e}")
+
+
+def backfill_today_history_if_empty(old_manifest):
+    """導入直後（history.jsonが空）の救済: 現在の最新画像を今日分として保存する.
+
+    過去の画像は復元できないため、初回は今日の1件から始まり、
+    翌日以降の更新で自然に蓄積される。
+    """
+    hist_path = OUT_DIR / HISTORY_INDEX_NAME
+    try:
+        if hist_path.exists():
+            loaded = json.loads(hist_path.read_text())
+            items = loaded if isinstance(loaded, list) else loaded.get("items", [])
+            if items:
+                return False
+    except Exception:
+        pass
+    if not old_manifest or not old_manifest.get("images"):
+        return False
+    try:
+        updated_at = old_manifest.get("updatedAt", "")
+        try:
+            now = datetime.fromisoformat(updated_at)
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=JST)
+        except Exception:
+            now = datetime.now(JST)
+        archive_snapshot(now, old_manifest, old_manifest["images"])
+        log("history.jsonが空だったため今日分をバックフィルした")
+        return True
+    except Exception as e:
+        log(f"バックフィルに失敗（無視）: {e}")
+        return False
 
 
 # -------------------------------------------------------------------

@@ -935,6 +935,12 @@
       <div style="padding:40px;text-align:center;color:var(--text-3);font-size:13px">読み込み中...</div>
     </div>
     <p style="font-size:12px;color:var(--text-3);text-align:center;margin-top:8px">前日14時ごろに次の時間割へ自動更新されます。表示が古い場合は上の「更新」を押してください</p>
+    <details id="timetableHistoryWrap" style="margin-top:16px;border:1px solid var(--line);border-radius:var(--r);background:var(--card);overflow:hidden">
+      <summary id="timetableHistorySummary" style="padding:12px 16px;font-size:13px;font-weight:600;cursor:pointer;list-style:none">過去1週間分の時間割を見る</summary>
+      <div id="timetableHistoryList" style="padding:0 16px 16px">
+        <p style="font-size:12px;color:var(--text-3)">開くと過去の時間割を読み込みます</p>
+      </div>
+    </details>
   </section>
 
   <!-- 生徒会活動 -->
@@ -2380,8 +2386,10 @@ async function applyFeatureGates(profile, { loggedIn } = {}) {
   })
   const ttNotice = document.getElementById('timetableBetaNotice')
   const ttImages = document.getElementById('timetableImagesFront')
+  const ttHistory = document.getElementById('timetableHistoryWrap')
   if (ttNotice) ttNotice.style.display = timetableVisible ? 'none' : ''
   if (ttImages) ttImages.style.display = timetableVisible ? '' : 'none'
+  if (ttHistory) ttHistory.style.display = timetableVisible ? '' : 'none'
   // β通過時のみ画像を先読み（対象外のユーザーには画像バイトを取得させない）
   if (timetableVisible && window.renderTimetableImages) window.renderTimetableImages()
 
