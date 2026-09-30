@@ -813,6 +813,103 @@ window.renderTimetableImages = async function(force) {
 }
 
 /**
+ * 過去1週間分の時間割（折りたたみ内に表示）。
+ * timetable/history.json を取得し、最新と同一updatedAtの entry は
+ * 上の最新表示と重複するため除外する。画像は <details> を開いた初回のみ
+ * 取得する（閉じている間の通信量を抑えるため）。
+ */
+function formatHistoryDate(dateStr) {
+  const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return dateStr || ''
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  const wd = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()] || ''
+  return `${Number(m[2])}月${Number(m[3])}日（${wd}）`
+}
+
+window.renderTimetableHistory = async function(force) {
+  const wrap = document.getElementById('timetableHistoryWrap')
+  const listEl = document.getElementById('timetableHistoryList')
+  const summaryEl = document.getElementById('timetableHistorySummary')
+  if (!wrap || !listEl) return
+  if (!force && listEl.dataset.rendered === '1') return
+  listEl.dataset.rendered = ''
+  listEl.innerHTML = '<p style="font-size:12px;color:var(--text-3)">読み込み中...</p>'
+  let items = []
+  try {
+    const res = await fetch(`timetable/history.json?_=${Date.now()}`, { cache: 'no-store' })
+    if (res.ok) {
+      const data = await res.json()
+      items = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : [])
+    }
+  } catch {
+    // 導入直後など history.json 未生成時は空扱い
+  }
+  // 最新表示と重複する当日分を除外（updatedAt一致 or 最新manifestと同ハッシュ集合）
+  const latestAt = window._timetableUpdatedAt || window._timetableManifest?.updatedAt || ''
+  const latestHashes = new Set((window._timetableManifest?.images || []).map(im => im.hash).filter(Boolean))
+  const past = items.filter(it => {
+    if (!it || !it.date) return false
+    if (latestAt && it.updatedAt && it.updatedAt === latestAt) return false
+    if (latestHashes.size && Array.isArray(it.images) && it.images.length) {
+      const hs = it.images.map(im => im.hash).filter(Boolean)
+      if (hs.length && hs.every(h => latestHashes.has(h)) && hs.length === latestHashes.size) return false
+    }
+    return true
+  })
+  if (summaryEl) summaryEl.textContent = past.length ? `過去1週間分の時間割を見る（${past.length}件）` : '過去1週間分の時間割を見る'
+  if (!past.length) {
+    listEl.innerHTML = '<p style="font-size:12px;color:var(--text-3)">まだ過去の時間割はありません（導入後の更新分から蓄積されます）</p>'
+    listEl.dataset.rendered = '1'
+    return
+  }
+  listEl.innerHTML = past.map(entry => {
+    // dir は history.json 由来のためセグメントごとにエンコードする
+    // （dir 全体を encodeURIComponent すると / が %2F になり404になる）
+    const dir = String(entry.dir || `history/${entry.date}`).replace(/^\/+/, '')
+      .split('/').map(s => encodeURIComponent(s)).join('/')
+    const label = entry.updatedAtLabel || formatHistoryDate(entry.date)
+    const imgs = (entry.images || []).map((im, i) => `
+      <div style="margin-top:8px">
+        <img src="timetable/${dir}/${encodeURIComponent(im.file)}" alt="過去の時間割 ${entry.date} ${i + 1}" loading="lazy"
+          style="width:100%;border-radius:var(--r);display:block"
+          onerror="this.style.display='none'">
+      </div>`).join('')
+    return `
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+        <div style="font-size:13px;font-weight:700">${formatHistoryDate(entry.date)}</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:2px">${label}</div>
+        ${imgs}
+      </div>`
+  }).join('')
+  listEl.dataset.rendered = '1'
+}
+
+function setupTimetableHistoryToggle() {
+  if (window._timetableHistorySetup) return
+  const wrap = document.getElementById('timetableHistoryWrap')
+  if (!wrap) return
+  window._timetableHistorySetup = true
+  wrap.addEventListener('toggle', () => {
+    if (wrap.open) window.renderTimetableHistory()
+  })
+}
+// DOM構築前(モジュール実行時)に存在しない場合に備え、初回描画時にもbindする
+setupTimetableHistoryToggle()
+const _origRenderTimetableImages = window.renderTimetableImages
+window.renderTimetableImages = async function(force) {
+  setupTimetableHistoryToggle()
+  if (force) {
+    const hist = document.getElementById('timetableHistoryList')
+    if (hist) hist.dataset.rendered = ''
+  }
+  const r = await _origRenderTimetableImages(force)
+  // 開いている最中の再取得なら履歴も更新する
+  const wrap = document.getElementById('timetableHistoryWrap')
+  if (force && wrap && wrap.open) await window.renderTimetableHistory(true)
+  return r
+}
+
+/**
  * 「更新」ボタン・通知経由の遷移から呼ばれる強制再取得。
  * PWAキャッシュ問題（Issue #85）対策: manifest.jsonをキャッシュ無視で
  * 取り直し、画像タグのクエリ文字列も毎回変えてブラウザ内キャッシュを回避する。
