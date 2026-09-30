@@ -170,6 +170,16 @@ def sync():
     # 差分あり → 上書き保存（余ったslotファイルは掃除）
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now(JST)
+    # 上書きで消える前日の分を先に履歴へ退避する（別日かつ未保存の場合のみ）。
+    # ディスク上の旧ファイルはこの時点でまだ残っているため復元できる。
+    try:
+        if old_manifest and old_files_ok and old_manifest.get("images"):
+            old_date = _date_of_manifest(old_manifest)
+            if old_date and old_date != now.strftime("%Y-%m-%d") and not _history_has_date(old_date):
+                archive_snapshot(now, old_manifest, old_manifest["images"], date_str=old_date)
+                log(f"前日分を履歴へ退避: {old_date}")
+    except Exception as e:
+        log(f"前日分の退避に失敗（最新表示には影響なし）: {e}")
     entries = []
     for i, im in enumerate(images):
         fname = f"slot-{i}.{im['ext']}"
@@ -193,15 +203,39 @@ def sync():
             "updatedAt": manifest["updatedAt"]}
 
 
-def archive_snapshot(now, manifest, images):
-    """当日分のスナップショットを history/YYYY-MM-DD/ に保存し、history.json を更新する.
+def _date_of_manifest(manifest):
+    """マニフェストの updatedAt から YYYY-MM-DD を取り出す（取れなければNone）."""
+    try:
+        dt = datetime.fromisoformat(manifest.get("updatedAt", ""))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=JST)
+        return dt.astimezone(JST).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
+def _history_has_date(date_str):
+    """history.json にその日付のentryがあればTrue."""
+    hist_path = OUT_DIR / HISTORY_INDEX_NAME
+    if not hist_path.exists():
+        return False
+    try:
+        loaded = json.loads(hist_path.read_text())
+        items = loaded if isinstance(loaded, list) else loaded.get("items", [])
+        return any(isinstance(it, dict) and it.get("date") == date_str for it in items)
+    except Exception:
+        return False
+
+
+def archive_snapshot(now, manifest, images, date_str=None):
+    """指定日分のスナップショットを history/YYYY-MM-DD/ に保存し、history.json を更新する.
 
     images は {"blob", "hash", "bytes", "ext"} または
-    {"file", "hash", "bytes"}（バックフィル時）の混在を許容する。
+    {"file", "hash", "bytes"}（バックフィル時・前日退避時）の混在を許容する。
     同一日の複数回更新は上書き（その日の最新を残す）。
     古い日付フォルダは HISTORY_KEEP 件を超えた分だけ削除する。
     """
-    date_str = now.strftime("%Y-%m-%d")
+    date_str = date_str or now.strftime("%Y-%m-%d")
     hdir = OUT_DIR / "history" / date_str
     hdir.mkdir(parents=True, exist_ok=True)
     hentries = []
