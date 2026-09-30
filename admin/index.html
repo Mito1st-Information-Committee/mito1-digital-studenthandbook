@@ -632,6 +632,26 @@ a{color:inherit}
 .iq-reply-ops .btn-xs{height:34px}
 .btn-xs.send{border-color:#1e8449;background:#1e8449;color:#fff}
 .btn-xs.send:hover{background:#19703d}
+/* =========================================================
+   CUSTOM MAIL（管理者からのHTMLメール送信）
+========================================================= */
+.mail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mail-grid .full{grid-column:1 / -1}
+.mail-hint{font-size:11.5px;color:var(--text-3);line-height:1.8}
+.mail-textarea{
+  width:100%;border:1.5px solid var(--border);border-radius:var(--r-sm);
+  padding:10px 12px;font-size:13px;background:var(--surface);color:var(--text);
+  outline:none;line-height:1.8;resize:vertical;
+}
+.mail-textarea:focus{border-color:var(--navy);box-shadow:0 0 0 3px rgba(26,39,68,.08)}
+.mail-preview{
+  border:1px solid var(--border);border-radius:var(--r-sm);background:#f5f5f5;
+  padding:14px;max-height:420px;overflow:auto;
+}
+.mail-progress{height:8px;background:var(--surface3);border-radius:6px;overflow:hidden;margin-top:10px}
+.mail-progress > div{height:100%;width:0;background:var(--navy);border-radius:6px;transition:width .2s}
+.mail-result{font-size:12px;color:var(--text-2);line-height:1.8;white-space:pre-wrap}
+@media (max-width:860px){.mail-grid{grid-template-columns:1fr}}
 .case-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:17px 19px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
 .case-rows{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px;color:var(--text-3);margin-top:8px}
 .case-rows dt{font-weight:600;white-space:nowrap}
@@ -933,6 +953,10 @@ a{color:inherit}
         お問い合わせ
         <span class="sb-badge alert" id="inquiryBadge" style="display:none"></span>
       </button>
+      <button class="adm-sb-item" data-sec="mail" id="sbMail">
+        <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>
+        メール送信
+      </button>
       <button class="adm-sb-item" data-sec="cases">
         <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
         公欠申請ケース
@@ -1230,6 +1254,108 @@ a{color:inherit}
           </div>
         </div>
         <div id="inquiriesList"><div class="loading-spinner"><div class="spinner"></div>読み込み中...</div></div>
+      </section>
+
+      <!-- CUSTOM MAIL（Issue: 手帳デザインのHTMLメールをResendで送信・差込対応） -->
+      <section class="adm-section" id="sec-mail">
+        <div class="adm-section-header">
+          <div class="adm-section-heading">
+            <div class="adm-section-title">メール送信</div>
+            <div class="adm-section-sub">お問い合わせ返信と同じ手帳デザインで送信（Resend経由）。{{お名前}} などの差込に対応</div>
+          </div>
+          <div class="adm-section-tools">
+            <button class="btn-ghost" onclick="previewCustomMail()">
+              <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              プレビュー更新
+            </button>
+          </div>
+        </div>
+        <div id="mailForbidden" style="display:none"></div>
+        <div id="mailForm">
+        <div class="panel panel-pad" style="margin-bottom:14px">
+          <div class="mail-grid">
+            <div class="form-group full" style="margin-bottom:0">
+              <label class="form-label" for="mailSubject">件名（{{変数}} が使えます）<span style="color:var(--enjii)"> 必須</span></label>
+              <input class="form-input" id="mailSubject" value="【情報委員会】加入のお知らせとSlackへのご案内" placeholder="例：【情報委員会】{{お名前}}様へのお知らせ">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailBadge">バッジ（ヘッダー下の小ラベル）</label>
+              <input class="form-input" id="mailBadge" value="情報委員会" placeholder="例：情報委員会">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailTitle">見出し（メール内の大見出し）</label>
+              <input class="form-input" id="mailTitle" value="情報委員会への加入を歓迎します" placeholder="例：情報委員会への加入を歓迎します">
+            </div>
+            <div class="form-group full" style="margin-bottom:0">
+              <label class="form-label" for="mailGreeting">宛名（未入力なら省略。{{お名前}} が使えます）</label>
+              <input class="form-input" id="mailGreeting" value="{{お名前}}" placeholder="例：{{お名前}}">
+              <div class="mail-hint">送信時に「○○ 様」と表示されます。不要なら空にしてください。</div>
+            </div>
+            <div class="form-group full" style="margin-bottom:0">
+              <label class="form-label" for="mailBody">本文（{{変数}}・改行・URL自動リンク対応）<span style="color:var(--enjii)"> 必須</span></label>
+              <textarea class="mail-textarea" id="mailBody" rows="9">このたびは情報委員会への加入を希望いただき、ありがとうございます。
+加入手続きが完了しましたので、お知らせします。
+
+委員会の連絡は Slack で行っています。お手数ですが、下のボタンからワークスペースに参加してください。
+参加後、表示名を「学年・組・氏名」にして #general で自己紹介をお願いします。
+
+招待URL: {{Slack招待URL}}
+うまく参加できない場合は、このメールに返信してください。
+{{お名前}}様と一緒に活動できるのを楽しみにしています。</textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailBtnLabel">ボタンラベル（空ならボタンなし）</label>
+              <input class="form-input" id="mailBtnLabel" value="Slackワークスペースに参加する" placeholder="例：Slackに参加する">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailBtnUrl">ボタンURL（{{変数}} 可）</label>
+              <input class="form-input" id="mailBtnUrl" value="https://join.slack.com/t/w1788425978-zes996195/shared_invite/zt-48mlk5xiv-_tDkmVcd8l1EBjEXCFOVtQ" placeholder="https://...">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailSlackUrl">共通変数 {{Slack招待URL}} の値</label>
+              <input class="form-input" id="mailSlackUrl" value="https://join.slack.com/t/w1788425978-zes996195/shared_invite/zt-48mlk5xiv-_tDkmVcd8l1EBjEXCFOVtQ">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailFooter">フッター注記</label>
+              <input class="form-input" id="mailFooter" value="このメールはデジタル生徒手帳から送信されています。心当たりがない場合は破棄してください。">
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel-pad" style="margin-bottom:14px">
+          <label class="form-label" for="mailRecipients">宛先リスト（1行1人・カンマ/タブ区切り。1行目が見出し＝変数名）<span style="color:var(--enjii)"> 必須</span></label>
+          <textarea class="mail-textarea" id="mailRecipients" rows="6" placeholder="メール,お名前&#10;taro@example.com,山田 太郎&#10;hanako@example.com,山田 花子">メール,お名前
+taro@example.com,山田 太郎</textarea>
+          <div class="mail-hint" style="margin-top:8px">
+            ・1行目は見出しです（例：<code>メール,お名前,学年</code>）。2行目以降が宛先です。<br>
+            ・見出しにない変数は、上の「共通変数」や本文中の固定値として使えます（例：<code>{{Slack招待URL}}</code>）。<br>
+            ・見出し行がない場合（いきなり <code>a@x,山田</code> の場合）は <code>メール,お名前</code> とみなします。
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">
+            <span style="font-size:12px;color:var(--text-2)" id="mailCount">0 件</span>
+            <span style="flex:1"></span>
+            <input class="input-ctl" id="mailTestTo" type="email" placeholder="テスト送信先（自分のアドレス）" style="min-width:240px">
+            <button class="btn-xs" onclick="sendTestCustomMail(event)">テスト送信</button>
+          </div>
+        </div>
+
+        <div class="panel panel-pad" style="margin-bottom:14px">
+          <div class="form-label">プレビュー（宛先1件目で差込適用）</div>
+          <div class="mail-preview" id="mailPreview"><span class="mail-hint">「プレビュー更新」を押すと表示されます</span></div>
+        </div>
+
+        <div class="panel panel-pad">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn-add" onclick="sendBulkCustomMail(event)" style="min-width:220px;justify-content:center">
+              <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>
+              一斉送信する
+            </button>
+            <span class="mail-hint">1通ずつ Resend 経由で送信します（宛先に他者のアドレスは入りません）。</span>
+          </div>
+          <div class="mail-progress" id="mailProgress" style="display:none"><div id="mailProgressBar"></div></div>
+          <div class="mail-result" id="mailResult" style="margin-top:10px"></div>
+        </div>
+        </div>
       </section>
 
       <!-- CASES -->

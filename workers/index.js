@@ -137,6 +137,7 @@ export default {
     if (url.pathname === '/send-approval') return sendApproval(body, env)
     if (url.pathname === '/send-complete')  return sendComplete(body, env)
     if (url.pathname === '/send-reply')     return sendReply(body, env)
+    if (url.pathname === '/send-custom')    return sendCustom(body, env)
 
     // LINE account linking / notifications
     if (url.pathname === '/line/exchange')  return lineExchange(body, env)
@@ -495,6 +496,102 @@ async function sendReply(body, env) {
   const r = await sendMail(env, { to: recipientEmail, subject: `【回答】${subject || 'お問い合わせ'}`, html })
   if (!r.ok) {
     console.error('[send-reply] mail failed:', r.status, r.detail)
+    return json({ error: 'Email send failed', detail: r.detail, hint: r.hint, status: r.status }, 500)
+  }
+  return json({ ok: true })
+}
+
+// -- Custom bulk-capable email (admin "メール送信") --------------------------
+// お問い合わせ返信と同じ手帳デザインで、任意の件名・本文を送る。
+// 差込印刷: subject / title / badge / bodyText / buttonLabel / buttonUrl 内の
+//   {{変数名}} を vars の値で置換する（例: {{お名前}}）。
+// 一斉送信はフロントが宛先ごとに本エンドポイントを1通ずつ呼ぶ
+// （Workers の30秒タイムアウトを避けるため。Resend 側のレート制限にもかかりにくい）。
+function applyMergeVars(template, vars) {
+  const map = (vars && typeof vars === 'object') ? vars : {}
+  return String(template ?? '').replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (m, key) => {
+    const k = String(key).trim()
+    if (Object.prototype.hasOwnProperty.call(map, k)) return String(map[k] ?? '')
+    return m
+  })
+}
+
+function escMailHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function mailBodyToHtml(text) {
+  const esc = escMailHtml(text).replace(/\n/g, '<br>')
+  return esc.replace(/(https?:\/\/[^\s<>"']+)/g, '<a href="$1" style="color:#1a2744">$1</a>')
+}
+
+function buildHandbookMail({ badge, title, greetingHtml, bodyHtml, buttonLabel, buttonUrl, footerNote, base, subtitle }) {
+  const iconUrl = base ? `${base}/icons/icon-192.png` : ''
+  const btn = (buttonLabel && buttonUrl)
+    ? `<div style="text-align:center;margin:20px 0 6px"><a href="${escMailHtml(buttonUrl)}" style="display:inline-block;background:#1a2744;color:#fff;padding:13px 30px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:700">${escMailHtml(buttonLabel)}</a></div>
+       <div style="font-size:11px;color:#999;text-align:center;margin-bottom:6px;word-break:break-all">ボタンが開けない場合はURLをコピーしてください:<br>${escMailHtml(buttonUrl)}</div>`
+    : ''
+  return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"></head>
+<body style="font-family:'Helvetica Neue',Arial,'Noto Sans JP',sans-serif;background:#f5f5f5;padding:24px;margin:0">
+<div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)">
+  <div style="background:#1a2744;padding:20px 28px;display:flex;align-items:center;gap:14px">
+    ${iconUrl ? `<img src="${escMailHtml(iconUrl)}" alt="" style="width:40px;height:40px;border-radius:8px" />` : ''}
+    <div><div style="color:#fff;font-size:18px;font-weight:700">水戸第一高等学校</div><div style="color:#a0b0cc;font-size:12px;margin-top:2px">${escMailHtml(subtitle || 'デジタル生徒手帳')}</div></div>
+  </div>
+  <div style="padding:28px">
+    ${badge ? `<div style="margin-bottom:12px"><span style="display:inline-block;font-size:12px;font-weight:600;color:#1a2744;background:rgba(26,39,68,.07);border:1px solid #e0e0e0;border-radius:999px;padding:4px 12px">${escMailHtml(badge)}</span></div>` : ''}
+    ${title ? `<div style="font-size:18px;font-weight:700;color:#1a2744;margin:0 0 14px">${escMailHtml(title)}</div>` : ''}
+    ${greetingHtml ? `<p style="color:#333;font-size:15px;margin:0 0 14px">${greetingHtml}</p>` : ''}
+    <div style="background:#f8f9fa;border-radius:8px;padding:16px 18px;margin:0 0 8px;font-size:14px;color:#333;line-height:1.9;border-left:4px solid #1a2744">
+      ${bodyHtml}
+    </div>
+    ${btn}
+    <p style="font-size:12px;color:#999;margin-top:18px">${escMailHtml(footerNote || 'このメールはデジタル生徒手帳から送信されています。心当たりがない場合は破棄してください。')}</p>
+    <a href="${escMailHtml(base || 'https://mito1-tetyo.tech')}" style="display:inline-block;background:#1a2744;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;margin-top:8px">デジタル生徒手帳を開く</a>
+  </div>
+</div></body></html>`
+}
+
+async function sendCustom(body, env) {
+  const { to, subject, title, badge, greetingName, bodyText, buttonLabel, buttonUrl, footerNote, vars, appBaseUrl } = body || {}
+
+  if (!to || !String(to).includes('@')) {
+    return json({ error: 'to is required' }, 400)
+  }
+  if (!subject || !String(subject).trim()) {
+    return json({ error: 'subject is required' }, 400)
+  }
+  if (!bodyText || !String(bodyText).trim()) {
+    return json({ error: 'bodyText is required' }, 400)
+  }
+  if (buttonUrl && !/^https?:\/\//.test(String(buttonUrl).trim()) && /\{\{/.test(String(buttonUrl))) {
+    // 差込前のプレースホルダーは許可（vars 適用後に再検査する）
+  } else if (buttonUrl && !/^https?:\/\//.test(String(applyMergeVars(buttonUrl, vars)).trim())) {
+    return json({ error: 'buttonUrl must start with http(s)://' }, 400)
+  }
+
+  const base = appBaseUrl || env.APP_BASE_URL || 'https://mito1-tetyo.tech'
+  const mergedSubject = applyMergeVars(subject, vars)
+  const mergedBody    = applyMergeVars(bodyText, vars)
+  const mergedTitle   = applyMergeVars(title || '', vars)
+  const mergedBadge   = applyMergeVars(badge || '', vars)
+  const mergedBtnLbl  = applyMergeVars(buttonLabel || '', vars)
+  const mergedBtnUrl  = applyMergeVars(buttonUrl || '', vars).trim()
+  const name          = applyMergeVars(greetingName || '', vars).trim()
+
+  const greetingHtml = name ? `${escMailHtml(name)} 様<br><br>お世話になっております。` : ''
+  const html = buildHandbookMail({
+    badge: mergedBadge, title: mergedTitle, greetingHtml,
+    bodyHtml: mailBodyToHtml(mergedBody),
+    buttonLabel: mergedBtnLbl, buttonUrl: mergedBtnUrl,
+    footerNote: applyMergeVars(footerNote || '', vars),
+    base, subtitle: 'デジタル生徒手帳',
+  })
+
+  const r = await sendMail(env, { to: String(to).trim(), subject: mergedSubject, html })
+  if (!r.ok) {
+    console.error('[send-custom] mail failed:', r.status, r.detail)
     return json({ error: 'Email send failed', detail: r.detail, hint: r.hint, status: r.status }, 500)
   }
   return json({ ok: true })
