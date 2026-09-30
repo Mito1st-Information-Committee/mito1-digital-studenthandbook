@@ -1272,6 +1272,14 @@ a{color:inherit}
         </div>
         <div id="mailForbidden" style="display:none"></div>
         <div id="mailForm">
+        <div class="panel panel-pad" style="margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label class="form-label" for="mailPreset" style="margin-bottom:0">テンプレート</label>
+          <select class="select-ctl" id="mailPreset" onchange="applyMailPreset(this.value)" style="min-width:280px">
+            <option value="info-join">情報委員会・加入案内＋Slack誘導</option>
+            <option value="beta">βテスター認定＋Slack・アカウント作成依頼</option>
+          </select>
+          <span class="mail-hint">切り替えると件名・本文が上書きされます（宛先・共通変数は保持）</span>
+        </div>
         <div class="panel panel-pad" style="margin-bottom:14px">
           <div class="mail-grid">
             <div class="form-group full" style="margin-bottom:0">
