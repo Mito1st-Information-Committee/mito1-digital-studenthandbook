@@ -16,16 +16,20 @@
 <meta name="color-scheme" content="light dark">
 <script>
 /* ダークモード自動判別（Issue #103）
-   ページ本体の描画より前に html[data-theme] を確定させるための初期適用。
+   ページ本体の描画より前に html[data-theme] と PWA のステータスバー色を確定させるための初期適用。
    ここで確定させておかないと、端末がダークモードのときだけ最初の1コマが
    ライトのままちらつく。実際の見た目の切替は CSS（tokens.css の [data-theme="dark"]）が
-   担当するので、ここでは属性を立てるだけ。判定ルールは src/theme.js と同一。 */
+   担当するので、ここでは属性を立てるだけ。判定ルールと色は src/theme.js と同一
+   （src/theme.js は module なので head で同期実行できず、色だけインラインに持つ）。 */
 (function(){
   try{
     var s = localStorage.getItem('mito1_theme');
     var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     var dark = (s === 'dark') || ((s !== 'light') && prefersDark);
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    // ステータスバー色も同時に合わせる（module 側の applyTheme() は描画後なので初回だけ不一致になる）
+    var meta = document.getElementById('themeColorMeta');
+    if (meta) meta.setAttribute('content', dark ? '#0e0e11' : '#1a2744');
   }catch(e){ /* localStorage が使えない環境（プライベートモード等）でも描画は続行する */ }
 })();
 </script>

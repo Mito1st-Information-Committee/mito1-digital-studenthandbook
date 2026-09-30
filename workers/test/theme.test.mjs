@@ -9,7 +9,8 @@
  *  - auto のときは端末のダークモード設定（prefers-color-scheme）に追従する。
  *  - light / dark は利用者の明示的な指定なので、端末設定より優先する。
  *  - <head> の初期適用スクリプトは「最初の描画からちらつかせない」ために
- *    src/theme.js と同じ判定で <html data-theme> を確定させる。
+ *    src/theme.js と同じ判定で <html data-theme> と PWA のステータスバー色を確定させる
+ *    （module 側の applyTheme() は描画後に走るので、初期適用側で合わせないと初回だけ不一致になる）。
  *
  * 実行:
  *   node --test workers/test/
@@ -137,7 +138,12 @@ test('head の初期適用が src/theme.js と同じ判定で <html data-theme> 
       const sandbox = {
         localStorage: { getItem: (k) => (k === THEME_STORAGE_KEY ? stored : null) },
         window: { matchMedia: (q) => ({ matches: q === '(prefers-color-scheme: dark)' && prefersDark }) },
-        document: { documentElement: { setAttribute: (k, v) => { attrs[k] = v } } },
+        document: {
+          documentElement: { setAttribute: (k, v) => { attrs[k] = v } },
+          getElementById: (id) => (id === 'themeColorMeta'
+            ? { setAttribute: (k, v) => { attrs[k] = v } }
+            : null),
+        },
       }
       vm.runInNewContext(bootstrap, sandbox)
 
@@ -147,6 +153,40 @@ test('head の初期適用が src/theme.js と同じ判定で <html data-theme> 
         'data-theme は dark か light のどちらかであること')
     }
   }
+})
+
+test('head の初期適用が PWA のステータスバー色も合わせてから描画する（初回だけ不一致にしない）', () => {
+  const bootstrap = extractHeadBootstrap()
+  assert.ok(bootstrap)
+
+  for (const stored of [null, '', 'auto', 'light', 'dark', 'unknown-value']) {
+    for (const prefersDark of [true, false]) {
+      const attrs = {}
+      const sandbox = {
+        localStorage: { getItem: (k) => (k === THEME_STORAGE_KEY ? stored : null) },
+        window: { matchMedia: (q) => ({ matches: q === '(prefers-color-scheme: dark)' && prefersDark }) },
+        document: {
+          documentElement: { setAttribute: (k, v) => { attrs[k] = v } },
+          getElementById: (id) => (id === 'themeColorMeta'
+            ? { setAttribute: (k, v) => { attrs[k] = v } }
+            : null),
+        },
+      }
+      vm.runInNewContext(bootstrap, sandbox)
+
+      const resolved = resolveThemeMode(stored, prefersDark)
+      assert.equal(attrs['content'], THEME_COLORS[resolved],
+        `保存値=${JSON.stringify(stored)} / 端末ダーク=${prefersDark} のときステータスバー色=${THEME_COLORS[resolved]}`)
+    }
+  }
+
+  // 初期適用と applyTheme() が同じ meta を指していること（id で握手している）
+  const html = readRepoFile('index.html')
+  assert.match(html, /<meta name="theme-color" content="#1a2744" id="themeColorMeta">/,
+    'ステータスバーの meta に themeColorMeta の id を付けること')
+  const firstCss = html.indexOf('<link rel="stylesheet"')
+  assert.ok(html.indexOf('id="themeColorMeta"') < firstCss,
+    'themeColorMeta は初期適用スクリプトより前に parsed されていること（getElementById で取れる）')
 })
 
 // =============================================
