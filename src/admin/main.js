@@ -2921,6 +2921,8 @@ function loadCustomMailSection() {
     ta.dataset.bound = '1'
     ta.addEventListener('input', refreshMailCount)
   }
+  const presetSel = $('mailPreset')
+  if (presetSel && !presetSel.dataset.current) presetSel.dataset.current = presetSel.value || 'info-join'
   previewCustomMail()
 }
 
@@ -2979,4 +2981,77 @@ window.sendBulkCustomMail = async function (evt) {
       + (failures.length ? `\n失敗：\n- ${failures.join('\n- ')}` : '')
   }
   showToast(failures.length ? `一斉送信：${ok}/${rows.length}件成功` : `一斉送信が完了しました（${ok}件）`)
+}
+
+// =============================================
+// カスタムメールのテンプレートプリセット
+// =============================================
+const MAIL_PRESETS = {
+  'info-join': {
+    subject: '【情報委員会】加入のお知らせとSlackへのご案内',
+    badge: '情報委員会',
+    title: '情報委員会への加入を歓迎します',
+    greeting: '{{お名前}}',
+    body: [
+      'このたびは情報委員会への加入を希望いただき、ありがとうございます。',
+      '加入手続きが完了しましたので、お知らせします。',
+      '',
+      '委員会の連絡は Slack で行っています。お手数ですが、下のボタンからワークスペースに参加してください。',
+      '参加後、表示名を「学年・組・氏名」にして #general で自己紹介をお願いします。',
+      '',
+      '招待URL: {{Slack招待URL}}',
+      'うまく参加できない場合は、このメールに返信してください。',
+      '{{お名前}}様と一緒に活動できるのを楽しみにしています。',
+    ].join('\n'),
+    btnLabel: 'Slackワークスペースに参加する',
+    btnUrl: '{{Slack招待URL}}',
+  },
+  'beta': {
+    subject: '【デジタル生徒手帳】βテスター認定のお知らせ',
+    badge: 'βテスター認定',
+    title: 'βテスターに認定しました',
+    greeting: '{{お名前}}',
+    body: [
+      'このたびはデジタル生徒手帳のβテストにご協力いただき、ありがとうございます。',
+      '{{お名前}}様をβテスターに認定しましたので、お知らせします。',
+      '',
+      'βテスターには、新機能を正式公開前に先行してお試しいただけます。',
+      'つきましては、次の2点をお願いします。',
+      '',
+      '1．デジタル生徒手帳のアカウント作成（まだの方）',
+      'https://mito1-tetyo.tech を開き、新規登録からアカウントを作成してください。',
+      '※学校のメールアドレス（@mito1-h.ibk.ed.jp）の使用を推奨します。',
+      '※登録直後は「未承認」のため一部機能が制限されます。承認は委員会が行います。',
+      '',
+      '2．Slackへの参加',
+      '委員会からの連絡は Slack で行っています。下のボタンからワークスペースに参加し、表示名を「学年・組・氏名」にしてください。',
+      '招待URL: {{Slack招待URL}}',
+      '',
+      '参加後は、使ってみた感想や不具合の報告をお待ちしています。',
+      'うまく登録・参加できない場合は、このメールに返信してください。',
+    ].join('\n'),
+    btnLabel: 'Slackワークスペースに参加する',
+    btnUrl: '{{Slack招待URL}}',
+  },
+}
+
+window.applyMailPreset = function (key) {
+  const p = MAIL_PRESETS[key]
+  if (!p) return
+  if (!confirm('テンプレートを適用しますか？\n件名・見出し・本文・ボタンが上書きされます（宛先リストは保持されます）。')) {
+    const sel = $('mailPreset')
+    if (sel) sel.value = sel.dataset.current || 'info-join'
+    return
+  }
+  $('mailSubject').value  = p.subject
+  $('mailBadge').value    = p.badge
+  $('mailTitle').value    = p.title
+  $('mailGreeting').value = p.greeting
+  $('mailBody').value     = p.body
+  $('mailBtnLabel').value = p.btnLabel
+  $('mailBtnUrl').value   = p.btnUrl
+  const sel = $('mailPreset')
+  if (sel) sel.dataset.current = key
+  previewCustomMail()
+  showToast('テンプレートを適用しました')
 }
