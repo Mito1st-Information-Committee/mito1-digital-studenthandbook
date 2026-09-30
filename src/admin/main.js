@@ -370,6 +370,7 @@ async function loadSection(sec) {
     case 'council-charter':    return Promise.all([loadList('council-charter', renderArticleList('councilCharterList')), loadCharterPreambleForm()])
     case 'council-rules':      return loadList('council-rules', renderArticleList('councilRulesList'))
     case 'inquiries':          return loadInquiries()
+    case 'mail':               return loadCustomMailSection()
     case 'announcements':      return loadAnnouncements()
     case 'beta':               return loadBetaFlags()
     case 'cases':              return canViewCasesAdmin(myProfile?.role) ? loadAdminCases() : renderCasesForbidden()
@@ -2736,4 +2737,246 @@ window.deleteUser = async function (uid, name) {
   } catch (e) {
     alert('削除に失敗しました: ' + (e?.message || String(e)))
   }
+}
+
+// =============================================
+// カスタムメール送信（手帳デザイン・Resend経由・差込対応）
+// =============================================
+// 宛先リストは「1行目=見出し（変数名）、2行目以降=宛先」のCSV風。
+// 例:
+//   メール,お名前
+//   taro@example.com,山田 太郎
+// 件名・本文・ボタン内の {{変数名}} が1通ごとに置換される。
+// 送信自体は Workers POST /send-custom を宛先ごとに1通ずつ呼ぶ
+// （Workers の30秒制限回避＋BCC漏洩防止のため）。
+
+function mailSplitRow(line) {
+  return String(line).split(/[\t,，、]/).map(c => {
+    let s = String(c ?? '').trim()
+    if (s.length >= 2 && ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))) {
+      s = s.slice(1, -1).trim()
+    }
+    return s
+  })
+}
+
+function mailEmailKey(headers) {
+  const i = headers.findIndex(h => /メール|mail|e-mail/i.test(h))
+  return i >= 0 ? i : -1
+}
+
+function parseMailRecipients() {
+  const raw = String($('mailRecipients')?.value || '').split('\n').map(s => s.trim()).filter(Boolean)
+  if (!raw.length) return { headers: [], rows: [], errors: ['宛先リストが空です'] }
+  const first = mailSplitRow(raw[0])
+  const looksHeader = first.some(c => /メール|mail|e-mail|お名前|名前|name|学年|組|grade|class/i.test(c))
+  const headers = looksHeader ? first : ['メール', 'お名前']
+  const dataLines = looksHeader ? raw.slice(1) : raw
+  const ei = mailEmailKey(headers)
+  if (ei < 0) return { headers, rows: [], errors: ['見出し行に「メール」列がありません（例：メール,お名前）'] }
+  const rows = []
+  const errors = []
+  dataLines.forEach((line, idx) => {
+    const cells = mailSplitRow(line)
+    const vars = {}
+    headers.forEach((h, i) => { vars[h] = cells[i] ?? '' })
+    const email = String(vars[headers[ei]] || '').trim()
+    const lineNo = (looksHeader ? idx + 2 : idx + 1)
+    if (!email || !email.includes('@')) {
+      errors.push(`${lineNo}行目：メールアドレスが不正です（${line || '（空）'}）`)
+      return
+    }
+    rows.push({ email, vars, lineNo })
+  })
+  return { headers, rows, errors }
+}
+
+function mailApplyMerge(template, vars) {
+  const map = (vars && typeof vars === 'object') ? vars : {}
+  return String(template ?? '').replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (m, key) => {
+    const k = String(key).trim()
+    if (Object.prototype.hasOwnProperty.call(map, k)) return String(map[k] ?? '')
+    return m
+  })
+}
+
+function mailCommonVars() {
+  return { 'Slack招待URL': String($('mailSlackUrl')?.value || '').trim() }
+}
+
+function mailTemplateRaw() {
+  return {
+    subject:   $('mailSubject')?.value || '',
+    badge:     $('mailBadge')?.value || '',
+    title:     $('mailTitle')?.value || '',
+    greeting:  $('mailGreeting')?.value || '',
+    body:      $('mailBody')?.value || '',
+    btnLabel:  $('mailBtnLabel')?.value || '',
+    btnUrl:    $('mailBtnUrl')?.value || '',
+    footer:    $('mailFooter')?.value || '',
+  }
+}
+
+function mailEsc(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function mailVarsFor(row) {
+  return { ...mailCommonVars(), ...(row?.vars || {}) }
+}
+
+function mailPreviewHtml(t, vars) {
+  const subject = mailApplyMerge(t.subject, vars)
+  const badge   = mailApplyMerge(t.badge, vars)
+  const title   = mailApplyMerge(t.title, vars)
+  const name    = mailApplyMerge(t.greeting, vars).trim()
+  const body    = mailApplyMerge(t.body, vars)
+  const btnLbl  = mailApplyMerge(t.btnLabel, vars)
+  const btnUrl  = mailApplyMerge(t.btnUrl, vars).trim()
+  const bodyHtml = mailEsc(body).replace(/\n/g, '<br>')
+    .replace(/(https?:\/\/[^\s<>"']+)/g, '<a href="$1" style="color:#1a2744">$1</a>')
+  return `
+    <div style="font-size:11px;color:#818894;margin-bottom:8px">件名: ${mailEsc(subject) || '（未入力）'}</div>
+    <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e3e6ea">
+      <div style="background:#1a2744;padding:16px 20px">
+        <div style="color:#fff;font-size:16px;font-weight:700">水戸第一高等学校</div>
+        <div style="color:#a0b0cc;font-size:11px;margin-top:2px">デジタル生徒手帳</div>
+      </div>
+      <div style="padding:20px">
+        ${badge ? `<div style="margin-bottom:10px"><span style="display:inline-block;font-size:12px;font-weight:600;color:#1a2744;background:rgba(26,39,68,.07);border:1px solid #e0e0e0;border-radius:999px;padding:3px 10px">${mailEsc(badge)}</span></div>` : ''}
+        ${title ? `<div style="font-size:17px;font-weight:700;color:#1a2744;margin:0 0 12px">${mailEsc(title)}</div>` : ''}
+        ${name ? `<p style="color:#333;font-size:14px;margin:0 0 12px">${mailEsc(name)} 様<br><br>お世話になっております。</p>` : ''}
+        <div style="background:#f8f9fa;border-radius:8px;padding:14px 16px;font-size:13.5px;color:#333;line-height:1.9;border-left:4px solid #1a2744">${bodyHtml || '<span style="color:#818894">（本文未入力）</span>'}</div>
+        ${(btnLbl && btnUrl) ? `<div style="text-align:center;margin:16px 0 4px"><span style="display:inline-block;background:#1a2744;color:#fff;padding:12px 26px;border-radius:8px;font-size:13.5px;font-weight:700">${mailEsc(btnLbl)}</span><div style="font-size:11px;color:#818894;margin-top:6px;word-break:break-all">${mailEsc(btnUrl)}</div></div>` : ''}
+      </div>
+    </div>`
+}
+
+function refreshMailCount() {
+  const { rows } = parseMailRecipients()
+  const el = $('mailCount')
+  if (el) el.textContent = `${rows.length} 件`
+}
+
+window.previewCustomMail = function () {
+  const t = mailTemplateRaw()
+  const { rows } = parseMailRecipients()
+  const vars = mailVarsFor(rows[0])
+  const box = $('mailPreview')
+  if (box) box.innerHTML = mailPreviewHtml(t, vars)
+  refreshMailCount()
+  if (!rows.length) showToast('宛先リストに有効な行がありません')
+}
+
+async function mailPostCustom({ to, vars }) {
+  const t = mailTemplateRaw()
+  const res = await fetch(AI_URL + '/send-custom', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      to,
+      subject:      t.subject,
+      title:        t.title,
+      badge:        t.badge,
+      greetingName: t.greeting,
+      bodyText:     t.body,
+      buttonLabel:  t.btnLabel,
+      buttonUrl:    t.btnUrl,
+      footerNote:   t.footer,
+      vars,
+      appBaseUrl:   window.location.origin,
+    }),
+  })
+  if (!res.ok) {
+    const raw = await res.text().catch(() => '')
+    let message = raw
+    try {
+      const parsed = JSON.parse(raw)
+      message = parsed.hint || parsed.detail || parsed.error || raw
+    } catch { /* 非JSONは本文のまま */ }
+    throw new Error(`送信失敗 (${res.status}): ${message}`)
+  }
+  return res.json().catch(() => ({}))
+}
+
+function loadCustomMailSection() {
+  const can = canReplyInquiries(myProfile?.role)
+  const forbidden = $('mailForbidden')
+  const form = $('mailForm')
+  if (!can) {
+    if (forbidden) {
+      forbidden.style.display = ''
+      forbidden.innerHTML = `<div class="notice warn">メール送信は委員会管理者以上のみ行えます（現在：${mailEsc(myProfile?.role || '不明')}）。プレビューと宛先リストの編集はできますが、送信ボタンは無効です。</div>`
+    }
+  } else if (forbidden) {
+    forbidden.style.display = 'none'
+    forbidden.innerHTML = ''
+  }
+  if (form) form.style.opacity = can ? '' : '.55'
+  document.querySelectorAll('#sec-mail button.btn-add, #sec-mail button.btn-xs.send, #sec-mail button.btn-xs:not([onclick^="preview"])').forEach(b => {
+    if (/一斉送信|テスト送信/.test(b.textContent)) b.disabled = !can
+  })
+  const ta = $('mailRecipients')
+  if (ta && !ta.dataset.bound) {
+    ta.dataset.bound = '1'
+    ta.addEventListener('input', refreshMailCount)
+  }
+  previewCustomMail()
+}
+
+window.sendTestCustomMail = async function (evt) {
+  if (!canReplyInquiries(myProfile?.role)) { showToast('送信する権限がありません（委員会管理者以上のみ）'); return }
+  const t = mailTemplateRaw()
+  if (!t.subject.trim()) { showToast('件名を入力してください'); return }
+  if (!t.body.trim()) { showToast('本文を入力してください'); return }
+  const { rows, errors } = parseMailRecipients()
+  const to = String($('mailTestTo')?.value || '').trim() || rows[0]?.email || ''
+  if (!to || !to.includes('@')) { showToast('テスト送信先のアドレスを入力してください'); return }
+  const vars = mailVarsFor(rows[0])
+  const btn = evt?.currentTarget
+  if (btn) { btn.disabled = true; btn.textContent = '送信中...' }
+  try {
+    await mailPostCustom({ to, vars })
+    showToast('テスト送信しました: ' + to)
+  } catch (e) {
+    showToast('メール送信エラー: ' + e.message)
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'テスト送信' }
+}
+
+window.sendBulkCustomMail = async function (evt) {
+  if (!canReplyInquiries(myProfile?.role)) { showToast('送信する権限がありません（委員会管理者以上のみ）'); return }
+  const t = mailTemplateRaw()
+  if (!t.subject.trim()) { showToast('件名を入力してください'); return }
+  if (!t.body.trim()) { showToast('本文を入力してください'); return }
+  const { rows, errors } = parseMailRecipients()
+  if (!rows.length) { showToast('有効な宛先がありません' + (errors[0] ? '：' + errors[0] : '')); return }
+  if (!confirm(`${rows.length}件に送信しますか？\n件名：${t.subject}\n1件目：${rows[0].email}`)) return
+  const btn = evt?.currentTarget
+  if (btn) btn.disabled = true
+  const bar = $('mailProgressBar')
+  const prog = $('mailProgress')
+  const out = $('mailResult')
+  if (prog) prog.style.display = ''
+  if (out) out.textContent = ''
+  const failures = []
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    try {
+      await mailPostCustom({ to: r.email, vars: mailVarsFor(r) })
+    } catch (e) {
+      failures.push(`${r.lineNo}行目 ${r.email}: ${e.message}`)
+    }
+    if (bar) bar.style.width = `${Math.round(((i + 1) / rows.length) * 100)}%`
+    if (out) out.textContent = `送信中... ${i + 1}/${rows.length}`
+    if (i < rows.length - 1) await new Promise(res => setTimeout(res, 350))
+  }
+  if (btn) btn.disabled = false
+  const ok = rows.length - failures.length
+  if (out) {
+    out.textContent = `完了：${ok}/${rows.length}件 成功`
+      + (errors.length ? `\nリスト注意：\n- ${errors.join('\n- ')}` : '')
+      + (failures.length ? `\n失敗：\n- ${failures.join('\n- ')}` : '')
+  }
+  showToast(failures.length ? `一斉送信：${ok}/${rows.length}件成功` : `一斉送信が完了しました（${ok}件）`)
 }

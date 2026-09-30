@@ -35,7 +35,7 @@ const src = fs.readFileSync(WORKER_SRC, 'utf8')
 // workers/index.js から純粋関数だけを抜き出して読み込む
 // （push-encrypt.test.mjs と同じ方式）
 // --------------------------------------------------------------------------
-const EXPORTED = ['sendMail', 'resendHint', 'json']
+const EXPORTED = ['sendMail', 'resendHint', 'json', 'applyMergeVars', 'escMailHtml', 'mailBodyToHtml', 'buildHandbookMail']
 
 function extractFunctions(source, names) {
   let out = ''
@@ -219,7 +219,7 @@ test('メール送信経路が resend() ではなく sendMail() を使ってい�
   // 呼び出し側が await r.text() する必要があり扱いを誤りやすかった。
   assert.ok(!/\bawait resend\(/.test(src), '古い resend() の呼び出しが残っていないこと')
   const calls = src.match(/await sendMail\(env,/g) || []
-  assert.ok(calls.length >= 3, '承認依頼・完了通知・お問い合わせ回答の3経路が sendMail を使うこと')
+  assert.ok(calls.length >= 4, '承認依頼・完了通知・お問い合わせ回答・カスタム送信の4経路が sendMail を使うこと')
 })
 
 test('GET /mail/diag が配線されている', () => {
@@ -229,10 +229,49 @@ test('GET /mail/diag が配線されている', () => {
 test('メール失敗レスポンスに hint が必ず含まれる（UIが対処法を出せること）', () => {
   // detail だけ返して hint を落とすと、利用者には英語の生エラーしか見えない。
   const failures = src.match(/json\(\{ error: 'Email send failed'[^}]*\}/g) || []
-  assert.equal(failures.length, 3, '承認依頼・完了通知・お問い合わせ回答の3経路があること')
+  assert.equal(failures.length, 4, '承認依頼・完了通知・お問い合わせ回答・カスタム送信の4経路があること')
   for (const f of failures) {
     assert.match(f, /hint: r\.hint/, `hint を返していない箇所がある: ${f}`)
   }
+})
+
+// ==========================================================================
+// カスタム送信（管理画面メール送信）の回帰
+// ==========================================================================
+
+test('POST /send-custom が配線されている', () => {
+  assert.match(src, /url\.pathname === '\/send-custom'/, 'カスタム送信エンドポイントが存在すること')
+  assert.match(src, /function sendCustom\(/, 'sendCustom ハンドラが存在すること')
+})
+
+test('applyMergeVars: {{変数}} を置換し、未知は残す', () => {
+  assert.equal(
+    W.applyMergeVars('{{お名前}}様、{{Slack招待URL}}へ', { 'お名前': '山田 太郎', 'Slack招待URL': 'https://x' }),
+    '山田 太郎様、https://xへ',
+  )
+  assert.equal(W.applyMergeVars('{{ お名前 }}様', { 'お名前': '山田' }), '山田様')
+  assert.equal(W.applyMergeVars('{{未知}}様', {}), '{{未知}}様')
+})
+
+test('mailBodyToHtml: 改行・URL・XSS対策', () => {
+  const out = W.mailBodyToHtml('こんにちは\nhttps://example.com\n<script>alert(1)</script>')
+  assert.match(out, /<br>/)
+  assert.match(out, /<a href="https:\/\/example\.com"/)
+  assert.ok(!out.includes('<script>'))
+})
+
+test('buildHandbookMail: バッジ・見出し・ボタンを含む手帳デザイン', () => {
+  const html = W.buildHandbookMail({
+    badge: '情報委員会', title: '加入を歓迎します',
+    greetingHtml: '山田 様', bodyHtml: '本文',
+    buttonLabel: 'Slackに参加', buttonUrl: 'https://example.com/join',
+    footerNote: '注記', base: 'https://mito1-tetyo.tech', subtitle: 'デジタル生徒手帳',
+  })
+  assert.match(html, /情報委員会/)
+  assert.match(html, /加入を歓迎します/)
+  assert.match(html, /Slackに参加/)
+  assert.match(html, /https:\/\/example\.com\/join/)
+  assert.match(html, /#1a2744/)
 })
 
 // ==========================================================================
