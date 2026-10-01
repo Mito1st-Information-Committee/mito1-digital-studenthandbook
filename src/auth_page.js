@@ -1,6 +1,7 @@
 import { onAuth, login, registerStudent, registerTeacher, resetPassword, getCurrentProfile,
   loginWithGoogle } from './auth.js'
 import { fetchFeatureFlags, getFlagStatus, FLAG_STATUSES } from './featureFlags.js'
+import { classOptionTags } from './classOptions.js'
 
 const BASE = ''
 
@@ -56,10 +57,7 @@ document.getElementById('mainCard').innerHTML = `
         </div>
         <div class="form-group">
           <label class="form-label">クラス <span class="req">必須</span></label>
-          <select class="form-input" id="regClass">
-            <option value="1">1組</option><option value="2">2組</option><option value="3">3組</option>
-            <option value="4">4組</option><option value="5">5組</option><option value="6">6組</option>
-          </select>
+          <select class="form-input" id="regClass">${classOptionTags()}</select>
         </div>
         <div class="form-group">
           <label class="form-label">出席番号 <span class="req">必須</span></label>

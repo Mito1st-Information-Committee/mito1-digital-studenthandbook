@@ -144,7 +144,7 @@ service cloud.firestore {
             && request.resource.data['class'] is number
             && request.resource.data.number is number
             && request.resource.data.grade >= 1 && request.resource.data.grade <= 3
-            && request.resource.data['class'] >= 1 && request.resource.data['class'] <= 6
+            && request.resource.data['class'] >= 1 && request.resource.data['class'] <= 8
             && request.resource.data.number >= 1 && request.resource.data.number <= 50
           )
         );

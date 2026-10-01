@@ -19,6 +19,7 @@ import {
 import {
   FLAG_STATUSES, FLAG_STATUS_LABELS, validateFlagKey, normalizeFlag, KNOWN_FLAGS,
 } from '../featureFlags.js'
+import { classLabel, classOptionTags, normalizeClass } from '../classOptions.js'
 
 // =============================================
 // STATE
@@ -2337,7 +2338,7 @@ function roleAttrs(u) {
   // 生徒はもちろん、モデレーター・管理者（生徒）も生徒が前提のため学年・クラス・番号を持つ
   if (u.role === 'student' || u.role === 'moderator' || u.role === 'admin_student') {
     if (u.grade)  attrs.push(`${u.grade}年`)
-    if (u.class)  attrs.push(`${u.class}組`)
+    if (u.class)  attrs.push(classLabel(u.class))
     if (u.number) attrs.push(`${u.number}番`)
     if (!u.grade || !u.class) attrs.push('⚠ 未設定')
   }
@@ -2630,7 +2631,7 @@ window.editUser = async function (uid) {
           <label>クラス <span class="form-tag req" id="f_user_class_req" style="${['moderator', 'admin_student'].includes(user.role) ? '' : 'display:none'}">必須</span></label>
           <select id="f_user_class">
             <option value="">—</option>
-            ${[1, 2, 3, 4, 5, 6].map(i => `<option value="${i}"${String(user.class) === String(i) ? ' selected' : ''}>${i}組</option>`).join('')}
+            ${classOptionTags(user.class, { includeEmpty: true })}
           </select>
         </div>
         <div>
@@ -2700,11 +2701,11 @@ window.editUser = async function (uid) {
           if (!c) throw new Error('クラスを入力してください（モデレーター・管理者（生徒）は必須）')
           if (!n) throw new Error('出席番号を入力してください（モデレーター・管理者（生徒）は必須）')
           data.grade  = Number(g)
-          data.class  = c
+          data.class  = normalizeClass(c)
           data.number = Number(n)
         } else {
           if (g) data.grade  = Number(g)
-          if (c) data.class  = c
+          if (c) data.class  = normalizeClass(c)
           if (n) data.number = Number(n)
         }
       }
