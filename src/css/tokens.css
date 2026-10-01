@@ -4,6 +4,10 @@
    VARIABLES
 =========================== */
 :root {
+  /* スクロールバー・フォーム部品・キャンバスなどのブラウザ既定UIの描画を
+     実際の表示テーマに合わせる（Issue #103）。未指定だとダークモードでも
+     明るいスクロールバーなどの既定UIが残ってしまう。 */
+  color-scheme: light;
   --navy: #1a2744;
   --navy-mid: #1e3060;
   --navy-light: #253a78;
@@ -31,7 +35,9 @@
   --safe-l: env(safe-area-inset-left,0px);
   --safe-r: env(safe-area-inset-right,0px);
 }
+/* ブラウザ既定UIもダーク描画に合わせる（Issue #103）。 */
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0e0e11;
   --surface: #18181d;
   --surface2: #202026;

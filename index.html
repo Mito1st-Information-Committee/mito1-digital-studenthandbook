@@ -13,7 +13,27 @@
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4414301960233587" crossorigin="anonymous"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-visual">
-<meta name="theme-color" content="#1a2744">
+<meta name="theme-color" content="#1a2744" id="themeColorMeta">
+<meta name="color-scheme" content="light dark">
+<script>
+/* ダークモード自動判別（Issue #103）
+   ページ本体の描画より前に html[data-theme] と PWA のステータスバー色を確定させるための初期適用。
+   ここで確定させておかないと、端末がダークモードのときだけ最初の1コマが
+   ライトのままちらつく。実際の見た目の切替は CSS（tokens.css の [data-theme="dark"]）が
+   担当するので、ここでは属性を立てるだけ。判定ルールと色は src/theme.js と同一
+   （src/theme.js は module なので head で同期実行できず、色だけインラインに持つ）。 */
+(function(){
+  try{
+    var s = localStorage.getItem('mito1_theme');
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var dark = (s === 'dark') || ((s !== 'light') && prefersDark);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    // ステータスバー色も同時に合わせる（module 側の applyTheme() は描画後なので初回だけ不一致になる）
+    var meta = document.getElementById('themeColorMeta');
+    if (meta) meta.setAttribute('content', dark ? '#0e0e11' : '#1a2744');
+  }catch(e){ /* localStorage が使えない環境（プライベートモード等）でも描画は続行する */ }
+})();
+</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -614,11 +634,19 @@
     </div>
 
     <div class="settings-sec-label">表示</div>
-    <button type="button" class="settings-row" onclick="toggleTheme()">
-      <span class="settings-row-icon"><svg id="settingsThemeIcon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span>
-      <span class="settings-row-lbl" id="settingsThemeLbl">ダークモード</span>
-      <span class="settings-row-chev"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></span>
-    </button>
+    <!-- テーマ（Issue #103）: 既定は「自動」で端末のダークモード設定に追従する -->
+    <div class="theme-mode">
+      <div class="theme-mode-head">
+        <span class="settings-row-icon"><svg id="settingsThemeIcon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span>
+        <span class="settings-row-lbl" id="settingsThemeLbl">自動（ライト）</span>
+      </div>
+      <div class="theme-seg" role="group" aria-label="テーマ">
+        <button type="button" class="theme-seg-btn on" data-theme-mode="auto" aria-pressed="true" onclick="setThemeMode('auto')">自動</button>
+        <button type="button" class="theme-seg-btn" data-theme-mode="light" aria-pressed="false" onclick="setThemeMode('light')">ライト</button>
+        <button type="button" class="theme-seg-btn" data-theme-mode="dark" aria-pressed="false" onclick="setThemeMode('dark')">ダーク</button>
+      </div>
+      <div class="theme-mode-hint" id="themeModeHint">端末のダークモード設定に合わせて自動的に切り替えます。</div>
+    </div>
 
     <div class="settings-sec-label">アカウント</div>
     <button type="button" class="settings-row settings-row-danger" onclick="doLogoutFront()">
@@ -1410,36 +1438,10 @@ document.addEventListener('keydown',e=>{
 
 /* =================================
    DARK MODE
+   実ロジックは下の type="module" 側にある「ダークモード自動判別」ブロック
+   （src/theme.js を利用）。初回描画時の適用は <head> の初期適用スクリプトが
+   行っているので、ここで <html data-theme> を触る必要はない。
 ================================= */
-let darkMode = localStorage.getItem('mito1_theme') === 'dark';
-// 初期テーマ反映（ちらつき防止のため即座に適用）
-if(darkMode){
-  document.documentElement.setAttribute('data-theme','dark');
-}
-const SUN_SVG='<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
-const MOON_SVG='<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
-function applyThemeIcon(){
-  const svg=darkMode?SUN_SVG:MOON_SVG;
-  const icon=document.getElementById('themeIcon');
-  if(icon) icon.innerHTML=svg;
-  // メニューシート内のテーマ切替も同期させる
-  const mIcon=document.getElementById('moreThemeIcon');
-  if(mIcon) mIcon.innerHTML=svg;
-  const mLbl=document.getElementById('moreThemeLbl');
-  if(mLbl) mLbl.textContent=darkMode?'ライトモード':'ダークモード';
-  // 設定シート内のテーマ切替も同期させる
-  const sIcon=document.getElementById('settingsThemeIcon');
-  if(sIcon) sIcon.innerHTML=svg;
-  const sLbl=document.getElementById('settingsThemeLbl');
-  if(sLbl) sLbl.textContent=darkMode?'ライトモード':'ダークモード';
-}
-applyThemeIcon();
-function toggleTheme(){
-  darkMode=!darkMode;
-  document.documentElement.setAttribute('data-theme',darkMode?'dark':'');
-  localStorage.setItem('mito1_theme',darkMode?'dark':'light');
-  applyThemeIcon();
-}
 
 /* =================================
    HEADER SEARCH (全文のみ)
@@ -2212,6 +2214,11 @@ import {
   setNotificationPrefs, getNotificationPrefs,
   NOTIFICATION_TYPES, DEFAULT_NOTIFICATION_PREFS, normalizeNotificationPrefs,
 } from '/src/push.js'
+import {
+  THEME_STORAGE_KEY, THEME_MODES, RESOLVED_THEMES, PREFERS_DARK_QUERY, THEME_COLORS,
+  THEME_MODE_HINTS, normalizeThemeMode, resolveThemeMode, nextThemeLabel, themeModeLabel,
+  themeToggleIcon, isPrefersDark,
+} from '/src/theme.js'
 
 loadAllData().catch(e => console.error('[Firestore]', e))
 
@@ -2220,6 +2227,94 @@ window._db = db
 window._fsAddDoc            = addDoc
 window._fsCollection        = collection
 window._fsServerTimestamp   = serverTimestamp
+
+// =============================================
+// ダークモード自動判別（Issue #103）
+// =============================================
+// テーマ指定は3通り。
+//   auto （既定）: 端末のダークモード設定（prefers-color-scheme）に追従する
+//   light        : 常にライトモード
+//   dark         : 常にダークモード
+// localStorage（mito1_theme）に保存し、端末側の設定が変わったら自動で追従する。
+// 最初の描画時点の適用は <head> の初期適用スクリプトが担当している（ちらつき防止）。
+let _themeMode = normalizeThemeMode(readStoredTheme())
+let _prefersDark = isPrefersDark()
+
+function readStoredTheme() {
+  try { return localStorage.getItem(THEME_STORAGE_KEY) } catch { return null }
+}
+function writeStoredTheme(mode) {
+  // 保存できなくても表示は切り替わるので、失敗してもエラーにはしない
+  try { localStorage.setItem(THEME_STORAGE_KEY, mode) } catch { /* ignore */ }
+}
+
+// 実際に表示するテーマ（'light' | 'dark'）を求める
+function currentTheme() {
+  return resolveThemeMode(_themeMode, _prefersDark)
+}
+
+// <html data-theme> と PWA のステータスバー色を現在の表示テーマに合わせる
+function applyTheme() {
+  const resolved = currentTheme()
+  document.documentElement.setAttribute('data-theme', resolved)
+  const meta = document.getElementById('themeColorMeta')
+  if (meta) meta.setAttribute('content', THEME_COLORS[resolved])
+  applyThemeIcon()
+}
+
+// テーマ切替UI（ヘッダー／moreシート／設定シート）の表示を同期する
+function applyThemeIcon() {
+  const resolved = currentTheme()
+  const svg = themeToggleIcon(resolved)
+  // ヘッダーの切替ボタン
+  const icon = document.getElementById('themeIcon')
+  if (icon) icon.innerHTML = svg
+  // moreシートの切替項目（ラベルは「次に切り替えると何になるか」を示す）
+  const mIcon = document.getElementById('moreThemeIcon')
+  if (mIcon) mIcon.innerHTML = svg
+  const mLbl = document.getElementById('moreThemeLbl')
+  if (mLbl) mLbl.textContent = nextThemeLabel(resolved)
+  // 設定シート: 現在のテーマ指定をアイコンとラベルで示す
+  const sIcon = document.getElementById('settingsThemeIcon')
+  if (sIcon) sIcon.innerHTML = svg
+  const sLbl = document.getElementById('settingsThemeLbl')
+  if (sLbl) sLbl.textContent = themeModeLabel(_themeMode, _prefersDark)
+  // 設定シートの「自動 / ライト / ダーク」選択
+  for (const btn of document.querySelectorAll('[data-theme-mode]')) {
+    const on = btn.getAttribute('data-theme-mode') === _themeMode
+    btn.classList.toggle('on', on)
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+  }
+  const hint = document.getElementById('themeModeHint')
+  if (hint) hint.textContent = THEME_MODE_HINTS[_themeMode]
+}
+
+// テーマ指定を書き換えて反映する。ヘッダー／moreシートの2値切替もこれを使う。
+function setThemeMode(mode) {
+  _themeMode = normalizeThemeMode(mode)
+  writeStoredTheme(_themeMode)
+  applyTheme()
+}
+
+// ヘッダー／moreシート: 現在と逆のテーマを明示的に設定する。
+// 「端末設定に追従（＝自動）」に戻すには設定シートのテーマ選択を使う。
+window.toggleTheme = function () {
+  setThemeMode(currentTheme() === RESOLVED_THEMES.DARK ? THEME_MODES.LIGHT : THEME_MODES.DARK)
+}
+window.setThemeMode = setThemeMode
+
+// 端末のダークモード設定の変化（OS側を切り替えたときなど）に追従する
+if (typeof window.matchMedia === 'function') {
+  const mql = window.matchMedia(PREFERS_DARK_QUERY)
+  const onPrefersChange = e => {
+    _prefersDark = e.matches === true
+    applyTheme()
+  }
+  if (typeof mql.addEventListener === 'function') mql.addEventListener('change', onPrefersChange)
+  else if (typeof mql.addListener === 'function') mql.addListener(onPrefersChange)  // 旧Safari
+}
+
+applyTheme()
 
 // =============================================
 // 認証状態管理
