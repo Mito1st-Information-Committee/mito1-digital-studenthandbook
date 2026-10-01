@@ -79,6 +79,9 @@ jobs:
             echo "::error::TIMETABLE_PUSH_TOKEN が未設定のためpushできません" >&2
             exit 1
           fi
+          # actions/checkout が仕込む GITHUB_TOKEN の extraheader が残っていると、
+          # URL埋め込みのPATより優先されて別主体扱いになりGH006拒否されるため先に消す
+          git config --local --unset-all 'http.https://github.com/.extraheader' || true
           git push "https://x-access-token:${TIMETABLE_PUSH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:main
 
   # GITHUB_TOKENでのpushはdeploy.ymlを起動しない仕様のため、
