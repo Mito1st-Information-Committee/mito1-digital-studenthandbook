@@ -1,5 +1,18 @@
 [
   {
+    "date": "2026-10-02",
+    "updatedAt": "2026-10-02T08:40:49+09:00",
+    "updatedAtLabel": "2026年10月2日 8:40更新",
+    "dir": "history/2026-10-02",
+    "images": [
+      {
+        "file": "slot-0.jpg",
+        "hash": "e67c613a92c265542ae3bcf9039dcc33a75ac097704e29dd6769560b8c33efe4",
+        "bytes": 128041
+      }
+    ]
+  },
+  {
     "date": "2026-10-01",
     "updatedAt": "2026-10-01T14:10:35+09:00",
     "updatedAtLabel": "2026年10月1日 14:10更新",
