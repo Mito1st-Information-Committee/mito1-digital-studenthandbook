@@ -14,7 +14,7 @@ import {
   ROLE_LABELS as R_LABELS, ROLE_COLORS as R_COLORS, ROLE_BGS as R_BGS,
   canAccessAdminPanel, canViewCasesAdmin, canManageRoles, canToggleApproval,
   canEditUserInfo, canViewUsers, canReplyInquiries, canManageTargetRole,
-  canAssignRole, assignableRoles, canManageBetaTester,
+  canAssignRole, assignableRoles, canManageBetaTester, isCommitteeAdmin,
 } from '../roles.js'
 import {
   FLAG_STATUSES, FLAG_STATUS_LABELS, validateFlagKey, normalizeFlag, KNOWN_FLAGS,
@@ -295,6 +295,10 @@ function applyRoleUI() {
   const casesNav = document.querySelector('.adm-sb-item[data-sec="cases"]')
   if (casesNav) casesNav.style.display = canViewCasesAdmin(role) ? '' : 'none'
 
+  // 時間割APIキー：委員会管理者以上のみ（課金に直結するためモデレーター不可）
+  const apiNav = document.querySelector('.adm-sb-item[data-sec="apikeys"]')
+  if (apiNav) apiNav.style.display = isCommitteeAdmin(role) ? '' : 'none'
+
   // ユーザー管理はスタッフ全員閲覧可（編集・ロール変更は個別制御）
   const usersNav = document.querySelector('.adm-sb-item[data-sec="users"]')
   if (usersNav) usersNav.style.display = canViewUsers(role) ? '' : 'none'
@@ -374,6 +378,7 @@ async function loadSection(sec) {
     case 'announcements':      return loadAnnouncements()
     case 'beta':               return loadBetaFlags()
     case 'cases':              return canViewCasesAdmin(myProfile?.role) ? loadAdminCases() : renderCasesForbidden()
+    case 'apikeys':            return isCommitteeAdmin(myProfile?.role) ? loadApiKeys() : renderApiKeysForbidden()
     case 'users':              return loadUsers()
   }
 }
@@ -3054,4 +3059,211 @@ window.applyMailPreset = function (key) {
   if (sel) sel.dataset.current = key
   previewCustomMail()
   showToast('テンプレートを適用しました')
+}
+
+// =============================================
+// 時間割APIキー管理（外部提供・Key式・有料前提）
+//   コレクション: timetableApiKeys/{keyId}
+//   ドキュメント: keyId, keyHash(sha256hex), keyPrefix(表示用),
+//     name, quotaDaily, revoked, revokedAt, dailyDate, dailyCount, totalCount,
+//     lastUsedAt, createdAt, createdBy, note
+//   平文キー `mt1_<12hex>_<48hex>` は発行時の一度だけ表示し、DBには保存しない。
+//   権限は委員会管理者以上（モデレーター不可）。firestore.rules 側でも同じ制限。
+// =============================================
+const TIMETABLE_API_KEYS_COL = 'timetableApiKeys'
+
+function renderApiKeysForbidden() {
+  const forbidden = $('apiKeysForbidden')
+  const body = $('apiKeysBody')
+  if (forbidden) {
+    forbidden.style.display = ''
+    forbidden.innerHTML = `<div class="notice warn">時間割APIキーの管理は委員会管理者以上のみ行えます（現在：${escHtml(myProfile?.role || '不明')}）。</div>`
+  }
+  if (body) body.style.opacity = '.55'
+}
+
+function apiKeyDateStr(v) {
+  try {
+    if (!v) return '—'
+    const d = typeof v.toDate === 'function' ? v.toDate() : new Date(v.seconds ? v.seconds * 1000 : v)
+    if (Number.isNaN(d.getTime())) return '—'
+    return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  } catch { return '—' }
+}
+
+function randomHex(bytes) {
+  const buf = new Uint8Array(bytes)
+  crypto.getRandomValues(buf)
+  return [...buf].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function sha256HexClient(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text)))
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function loadApiKeys() {
+  const forbidden = $('apiKeysForbidden')
+  const body = $('apiKeysBody')
+  if (forbidden) { forbidden.style.display = 'none'; forbidden.innerHTML = '' }
+  if (body) body.style.opacity = ''
+  if (!isCommitteeAdmin(myProfile?.role)) { renderApiKeysForbidden(); return }
+  const el = $('apiKeysList')
+  if (el) el.innerHTML = spinner()
+  let items = []
+  try {
+    const snap = await getDocs(collection(db, TIMETABLE_API_KEYS_COL))
+    items = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    items.sort((a, b) => {
+      const at = a.createdAt?.seconds || 0
+      const bt = b.createdAt?.seconds || 0
+      return bt - at
+    })
+  } catch (e) {
+    console.error('[admin] loadApiKeys failed', e)
+    if (el) el.innerHTML = errorState(e)
+    return
+  }
+  if (!el) return
+  if (!items.length) {
+    el.innerHTML = emptyState('まだAPIキーがありません', '上のフォームから最初のキーを発行してください')
+    return
+  }
+  el.innerHTML = items.map(k => {
+    const revoked = !!k.revoked
+    const pill = revoked
+      ? '<span style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;color:#c0392b;background:#fdecea">無効</span>'
+      : '<span style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;color:#155724;background:#d4edda">有効</span>'
+    const usage = `本日 ${Number(k.dailyCount || 0)} / 上限 ${Number(k.quotaDaily || 1000)}（${escHtml(k.dailyDate || '—')}）・累計 ${Number(k.totalCount || 0)}`
+    return `
+    <div class="item-card" style="margin-bottom:10px;${revoked ? 'opacity:.75' : ''}">
+      <div class="item-card-header">
+        <span class="item-num">KEY</span>
+        <span class="item-title">${escHtml(k.name || '(名称未設定)')} <span style="font-weight:400;color:var(--text-3);font-size:11px">${escHtml(k.keyPrefix || k.id)}</span></span>
+        ${pill}
+        <div class="item-actions">
+          ${revoked
+            ? `<button class="btn-xs" onclick="restoreTimetableApiKey('${escHtml(k.id)}')">復活</button>`
+            : `<button class="btn-xs" onclick="revokeTimetableApiKey('${escHtml(k.id)}')">無効化</button>`}
+          <button class="btn-xs danger" onclick="deleteTimetableApiKey('${escHtml(k.id)}')">削除</button>
+        </div>
+      </div>
+      <div class="item-card-body">
+        <div style="font-size:11px;color:var(--text-3)">利用量: ${escHtml(usage)} ／ 最終利用: ${escHtml(apiKeyDateStr(k.lastUsedAt))} ／ 発行: ${escHtml(apiKeyDateStr(k.createdAt))}（${escHtml(k.createdBy || '')}）</div>
+        ${k.note ? `<div class="item-body-text" style="margin-top:6px">${escHtml(k.note)}</div>` : ''}
+        <div style="font-size:11px;color:var(--text-3);margin-top:8px;line-height:1.8">
+          一覧: <code>/api/v1/timetable/list?key=...</code><br>
+          画像: <code>/api/v1/timetable/image?date=YYYY-MM-DD&amp;slot=0&amp;key=...</code>（&lt;img src&gt;に直接指定可）
+        </div>
+      </div>
+    </div>`
+  }).join('')
+}
+
+window.loadApiKeys = loadApiKeys
+
+window.issueTimetableApiKey = async function (evt) {
+  if (!isCommitteeAdmin(myProfile?.role)) { showToast('権限がありません（委員会管理者以上のみ）'); return }
+  const name = String($('apiKeyName')?.value || '').trim()
+  const note = String($('apiKeyNote')?.value || '').trim()
+  const quotaRaw = Number($('apiKeyQuota')?.value || 1000)
+  const quotaDaily = Number.isFinite(quotaRaw) ? Math.min(100000, Math.max(1, Math.floor(quotaRaw))) : 1000
+  if (!name) { showToast('利用者名・用途を入力してください'); return }
+  const btn = evt?.currentTarget
+  if (btn) btn.disabled = true
+  try {
+    const keyId = randomHex(6)
+    const secret = randomHex(24)
+    const plain = `mt1_${keyId}_${secret}`
+    const keyHash = await sha256HexClient(plain)
+    await setDoc(doc(db, TIMETABLE_API_KEYS_COL, keyId), {
+      keyId,
+      keyHash,
+      keyPrefix: `mt1_${keyId}_…${secret.slice(-4)}`,
+      name,
+      note,
+      quotaDaily,
+      revoked: false,
+      revokedAt: null,
+      dailyDate: '',
+      dailyCount: 0,
+      totalCount: 0,
+      lastUsedAt: null,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.email || auth.currentUser?.uid || '',
+    })
+    const box = $('apiKeyIssued')
+    if (box) {
+      box.innerHTML = `
+        <div class="notice" style="background:#e6f4ec;color:#155724;border-color:#bfe3cd">
+          キーを発行しました（再表示不可）。利用者に安全に渡してください。<br>
+          <code id="apiKeyPlain" style="user-select:all;word-break:break-all">${escHtml(plain)}</code>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-xs primary" onclick="copyTimetableApiKey()">コピーする</button>
+          </div>
+        </div>`
+    }
+    const nameEl = $('apiKeyName')
+    const noteEl = $('apiKeyNote')
+    if (nameEl) nameEl.value = ''
+    if (noteEl) noteEl.value = ''
+    showToast('APIキーを発行しました')
+    await loadApiKeys()
+  } catch (e) {
+    console.error('[admin] issueApiKey failed', e)
+    showToast('発行に失敗しました: ' + (e?.message || e))
+  }
+  if (btn) btn.disabled = false
+}
+
+window.copyTimetableApiKey = async function () {
+  const code = $('apiKeyPlain')
+  const text = code ? code.textContent.trim() : ''
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    showToast('キーをコピーしました')
+  } catch {
+    const r = document.createRange()
+    r.selectNodeContents(code)
+    const sel = getSelection()
+    sel.removeAllRanges()
+    sel.addRange(r)
+    showToast('キーを選択しました（Ctrl+Cでコピー）')
+  }
+}
+
+window.revokeTimetableApiKey = async function (keyId) {
+  if (!isCommitteeAdmin(myProfile?.role)) { showToast('権限がありません（委員会管理者以上のみ）'); return }
+  if (!confirm('このAPIキーを無効化しますか？\n無効化すると直ちに画像・一覧の取得ができなくなります。')) return
+  try {
+    await updateDoc(doc(db, TIMETABLE_API_KEYS_COL, keyId), { revoked: true, revokedAt: serverTimestamp() })
+    showToast('キーを無効化しました')
+    await loadApiKeys()
+  } catch (e) {
+    showToast('無効化に失敗しました: ' + (e?.message || e))
+  }
+}
+
+window.restoreTimetableApiKey = async function (keyId) {
+  if (!isCommitteeAdmin(myProfile?.role)) { showToast('権限がありません（委員会管理者以上のみ）'); return }
+  try {
+    await updateDoc(doc(db, TIMETABLE_API_KEYS_COL, keyId), { revoked: false, revokedAt: deleteField() })
+    showToast('キーを復活しました')
+    await loadApiKeys()
+  } catch (e) {
+    showToast('復活に失敗しました: ' + (e?.message || e))
+  }
+}
+
+window.deleteTimetableApiKey = async function (keyId) {
+  if (!isCommitteeAdmin(myProfile?.role)) { showToast('権限がありません（委員会管理者以上のみ）'); return }
+  if (!confirm('このAPIキーを完全に削除しますか？\n削除後は同じキーの再発行・復活はできません。')) return
+  try {
+    await deleteDoc(doc(db, TIMETABLE_API_KEYS_COL, keyId))
+    showToast('キーを削除しました')
+    await loadApiKeys()
+  } catch (e) {
+    showToast('削除に失敗しました: ' + (e?.message || e))
+  }
 }
