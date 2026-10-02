@@ -70,7 +70,7 @@ const ALLOWED_REDIRECT_ORIGINS = [
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, X-API-Key, Authorization',
 }
 
 export default {
@@ -79,12 +79,25 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(githubDispatch(env))
   },
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: CORS })
     }
 
     const url = new URL(request.url)
+
+    // 時間割API（外部提供・Key制限・imgタグ対応）— GET のみ
+    //   GET /api/v1/timetable/list?key=...  → 直近7件の一覧JSON（画像URLはAPI相対パスのみ）
+    //   GET /api/v1/timetable/image?date=YYYY-MM-DD&slot=0&key=... → 画像バイナリ（<img src>に直接指定可）
+    if (request.method === 'GET' && url.pathname === '/api/v1/timetable/list') {
+      return timetableListApi(request, url, env, ctx)
+    }
+    if (request.method === 'GET' && url.pathname === '/api/v1/timetable/image') {
+      return timetableImageApi(request, url, env, ctx)
+    }
+    if (request.method === 'GET' && url.pathname === '/api/v1/timetable/diag') {
+      return timetableDiagApi(request, url, env)
+    }
 
     // GET /approve -> redirect to approve.html
     if (request.method === 'GET' && url.pathname === '/approve') {
@@ -1980,6 +1993,453 @@ async function mailDiag(url, env) {
   }
 
   return json(info, info.ok ? 200 : 500)
+}
+
+// =======================================================================
+// 時間割API（外部提供・Key制限・imgタグ対応）
+// =======================================================================
+//
+// ■ 提供するもの（過去1週間＝直近7件）
+//   GET /api/v1/timetable/list
+//     → { ok, latest: {...}, history: [...] } のJSON。一覧の把握用。
+//        画像の直リンク（origin URL）は一切返さない。API相対パスのみ。
+//   GET /api/v1/timetable/image?date=YYYY-MM-DD&slot=0
+//     → 画像バイナリそのもの。<img src=".../image?date=...&slot=0&key=..."> に直接指定できる。
+//        origin のファイル配置はクライアントに漏らさず、Worker が代理取得して返す。
+//
+// ■ 認証（Key式・有料提供前提）
+//   - リクエスト毎に APIキー必須。ヘッダ `X-API-Key: mt1_...` を推奨。
+//     <img> タグからはヘッダを付けられないため `?key=...`（別名 ?api_key= / ?apiKey=）も受ける。
+//     `Authorization: Bearer mt1_...` も可。
+//   - キー形式: `mt1_<keyId:12hex>_<secret:48hex>`
+//     Firestore `timetableApiKeys/{keyId}` に { keyHash(sha256hex), revoked, quotaDaily, ... } を保持し、
+//     平文キーは保存しない（発行時に一度だけ表示）。管理画面から発行・無効化する。
+//   - Worker はサービスアカウント（FIREBASE_SERVICE_ACCOUNT_JSON）で Firestore REST を
+//     管理者権限で読む。未設定時は 503（API利用不可）を返す。
+//
+// ■ 秘匿の限界（重要）
+//   現行の public/timetable/ は Pages の静的公開のため、URL を知る者は認証なしで取得できる。
+//   本APIは「正規の取得手段をKey制限にする＋origin URLを外部に漏らさない」ことで推測取得を
+//   難しくするが、完全秘匿には R2 等プライベート配置への移行が必要（docs 側に移行メモ）。
+//   そのため画像は302リダイレクトではなく必ずバイトプロキシで返す。
+//
+// ■ レート制限
+//   キー毎に JST日次 quotaDaily（既定 1000）。超過時は 429。
+
+const TIMETABLE_API_KEY_RE = /^mt1_[0-9a-f]{12}_[0-9a-f]{48}$/
+const TIMETABLE_API_COLLECTION = 'timetableApiKeys'
+const TIMETABLE_API_DEFAULT_QUOTA = 1000
+const TIMETABLE_API_KEEP = 7
+
+/** Key文字列から keyId を取り出す（形式不正なら ''） */
+function timetableKeyIdFromKey(key) {
+  if (typeof key !== 'string') return ''
+  const m = key.match(/^mt1_([0-9a-f]{12})_[0-9a-f]{48}$/)
+  return m ? m[1] : ''
+}
+
+/** キー形式の検証（純粋関数・テスト用） */
+function isValidTimetableKeyFormat(key) {
+  return TIMETABLE_API_KEY_RE.test(String(key || ''))
+}
+
+/**
+ * リクエスト各所からAPIキーを取り出す（純粋関数・テスト用）。
+ * parts: { xApiKey, authorization, queryKey }
+ */
+function parseTimetableApiKeyFromParts(parts) {
+  const p = parts || {}
+  const headerKey = String(p.xApiKey || '').trim()
+  if (headerKey) return headerKey
+  const auth = String(p.authorization || '').trim()
+  const bearer = auth.match(/^Bearer\s+(.+)$/i)
+  if (bearer) return bearer[1].trim()
+  const q = String(p.queryKey || '').trim()
+  return q
+}
+
+/** Request/URL からAPIキーを取り出す */
+function extractTimetableApiKey(request, url) {
+  return parseTimetableApiKeyFromParts({
+    xApiKey: request.headers.get('x-api-key') || '',
+    authorization: request.headers.get('authorization') || '',
+    queryKey: url.searchParams.get('key') || url.searchParams.get('api_key') || url.searchParams.get('apiKey') || '',
+  })
+}
+
+/** SHA-256 hex（Workers/Node 両対応） */
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text || '')))
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** 定数時間の文字列比較（タイミング攻撃で有効/無効が漏れないように） */
+function timetableTimingSafeEqual(a, b) {
+  const sa = String(a || '')
+  const sb = String(b || '')
+  if (sa.length !== sb.length) return false
+  let diff = 0
+  for (let i = 0; i < sa.length; i++) diff |= sa.charCodeAt(i) ^ sb.charCodeAt(i)
+  return diff === 0
+}
+
+/** JSTの YYYY-MM-DD（quotaの日次リセット用） */
+function timetableTodayJst(d = new Date()) {
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
+  const y = jst.getUTCFullYear()
+  const m = String(jst.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(jst.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** YYYY-MM-DD の厳密検証（パストラバーサル対策の第一関門） */
+function sanitizeTimetableDate(v) {
+  const s = String(v || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return ''
+  const [y, m, d] = s.split('-').map(Number)
+  if (m < 1 || m > 12 || d < 1 || d > 31) return ''
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return ''
+  return s
+}
+
+/** slot パラメータの検証（0〜9） */
+function sanitizeTimetableSlot(v) {
+  if (v === null || v === undefined || v === '') return 0
+  const n = Number(String(v).trim())
+  if (!Number.isInteger(n) || n < 0 || n > 9) return -1
+  return n
+}
+
+/** 拡張子→Content-Type */
+function timetableContentType(file) {
+  const ext = String(file || '').split('.').pop().toLowerCase()
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
+  if (ext === 'png') return 'image/png'
+  if (ext === 'webp') return 'image/webp'
+  if (ext === 'gif') return 'image/gif'
+  return 'application/octet-stream'
+}
+
+/** Firestore REST の値形式をプレーン値へ（apiKeys doc用・最小限） */
+function timetableRestToPlain(fields) {
+  const out = {}
+  for (const [k, v] of Object.entries(fields || {})) {
+    if (v == null || typeof v !== 'object') continue
+    if ('stringValue' in v) out[k] = v.stringValue
+    else if ('integerValue' in v) out[k] = Number(v.integerValue)
+    else if ('booleanValue' in v) out[k] = !!v.booleanValue
+    else if ('timestampValue' in v) out[k] = v.timestampValue
+  }
+  return out
+}
+
+/**
+ * manifest + history から「直近7件」を組み立てる（純粋関数・テスト用）。
+ * history.json は日付降順・最大7件で来る想定。latest と updatedAt が同一の
+ * entry は重複のため除外し、latest1件＋過去6件＝合計7件に丸める。
+ */
+function filterTimetableList(manifest, history) {
+  const items = Array.isArray(history) ? history : []
+  const latestAt = (manifest && manifest.updatedAt) || ''
+  const filtered = items.filter(it => {
+    if (!it || !it.date) return false
+    if (latestAt && it.updatedAt && it.updatedAt === latestAt) return false
+    return true
+  }).slice(0, TIMETABLE_API_KEEP - 1)
+  return { latest: manifest || null, history: filtered }
+}
+
+/**
+ * 公開JSONからAPI向け一覧JSONを組み立てる（純粋関数・テスト用）。
+ * origin のファイル配置（dir/file）はクライアントに渡さず、API相対パスのみ返す。
+ */
+function buildTimetableListResponse(manifest, history, workerOrigin) {
+  const origin = String(workerOrigin || '').replace(/\/$/, '')
+  const toEntry = (entry, isLatest) => {
+    const date = entry && entry.date
+      ? entry.date
+      : (() => { try { return String(entry.updatedAt || '').slice(0, 10) } catch { return '' } })()
+    const images = Array.isArray(entry && entry.images) ? entry.images : []
+    return {
+      date: date || '',
+      updatedAt: entry.updatedAt || '',
+      updatedAtLabel: entry.updatedAtLabel || '',
+      slots: images.length,
+      images: images.map((_, i) => ({
+        slot: i,
+        url: `${origin}/api/v1/timetable/image?date=${encodeURIComponent(date || '')}&slot=${i}`,
+      })),
+      _latest: undefined,
+      isLatest: !!isLatest,
+    }
+  }
+  const { latest, history: past } = filterTimetableList(manifest, history)
+  // latest の date が取れない場合は history 先頭の日付で補完しない（空のまま 404 誘導）
+  const latestEntry = latest ? toEntry({ ...latest, date: latestDateOfManifest(latest, past) }, true) : null
+  return {
+    ok: true,
+    keep: TIMETABLE_API_KEEP,
+    latest: latestEntry,
+    history: past.map(e => toEntry(e, false)),
+  }
+}
+
+function latestDateOfManifest(manifest, past) {
+  try {
+    const s = String((manifest && manifest.updatedAt) || '').slice(0, 10)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  } catch { /* ignore */ }
+  return ''
+}
+
+/**
+ * date/slot → origin 上の画像パスを解決する（純粋関数・テスト用）。
+ * 成功: { dir, file, date, updatedAt } / 失敗: { error, availableDates? }
+ * dir は `history/YYYY-MM-DD` のみ許可し、それ以外の値（history.json改ざん時）は拒否する。
+ */
+function resolveTimetableOrigin(manifest, history, dateStr, slot) {
+  const items = Array.isArray(history) ? history : []
+  // date 省略時は最新
+  if (!dateStr) {
+    const images = (manifest && Array.isArray(manifest.images)) ? manifest.images : []
+    if (!images.length || slot >= images.length) {
+      return { error: 'slot not found', status: 404 }
+    }
+    const file = String(images[slot].file || '')
+    if (!/^slot-\d+\.(jpg|jpeg|png|webp|gif|bin)$/i.test(file)) return { error: 'invalid file entry', status: 500 }
+    return { dir: '', file, date: latestDateOfManifest(manifest, items), updatedAt: manifest.updatedAt || '' }
+  }
+  const entry = items.find(e => e && e.date === dateStr)
+  // history に無い日付でも manifest 当日と一致すれば最新として扱う
+  if (!entry) {
+    const manifestDate = latestDateOfManifest(manifest, items)
+    if (manifestDate && manifestDate === dateStr) {
+      return resolveTimetableOrigin(manifest, history, '', slot)
+    }
+    return { error: 'date not found', status: 404, availableDates: items.map(e => e.date).filter(Boolean) }
+  }
+  const images = Array.isArray(entry.images) ? entry.images : []
+  if (!images.length || slot >= images.length) {
+    return { error: 'slot not found', status: 404 }
+  }
+  const rawDir = String(entry.dir || `history/${entry.date}`)
+  if (!/^history\/\d{4}-\d{2}-\d{2}$/.test(rawDir)) return { error: 'invalid dir entry', status: 500 }
+  if (rawDir !== `history/${entry.date}`) return { error: 'invalid dir entry', status: 500 }
+  const file = String(images[slot].file || '')
+  if (!/^slot-\d+\.(jpg|jpeg|png|webp|gif|bin)$/i.test(file)) return { error: 'invalid file entry', status: 500 }
+  return { dir: rawDir, file, date: entry.date, updatedAt: entry.updatedAt || '' }
+}
+
+/** Firestore からAPIキーのドキュメントを読む（管理者権限・サービスアカウント） */
+async function fetchTimetableApiKeyDoc(keyId, env) {
+  const projectId = env.FIREBASE_PROJECT_ID
+  if (!projectId) return { ok: false, error: 'FIREBASE_PROJECT_ID not set' }
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) return { ok: false, error: 'service account not set' }
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${TIMETABLE_API_COLLECTION}/${encodeURIComponent(keyId)}`
+  const res = await firestoreFetch(env, url)
+  if (res.status === 404) return { ok: false, notFound: true }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    console.error('[timetable-api] key doc fetch failed:', res.status, detail.slice(0, 200))
+    return { ok: false, error: `key lookup failed (${res.status})` }
+  }
+  const doc = await res.json().catch(() => null)
+  return { ok: true, fields: timetableRestToPlain(doc && doc.fields) }
+}
+
+/** APIキーを検証する。成功時は { ok:true, keyId, key }、失敗時は { ok:false, status, error } */
+async function verifyTimetableApiKey(presentedKey, env) {
+  if (!presentedKey) {
+    return { ok: false, status: 401, error: 'api key required (X-API-Key header or ?key=)' }
+  }
+  if (!isValidTimetableKeyFormat(presentedKey)) {
+    return { ok: false, status: 401, error: 'invalid api key' }
+  }
+  const keyId = timetableKeyIdFromKey(presentedKey)
+  const fetched = await fetchTimetableApiKeyDoc(keyId, env)
+  if (fetched.notFound) return { ok: false, status: 401, error: 'invalid api key' }
+  if (!fetched.ok) {
+    // 設定不備は 503（呼び出し側のリトライで直る類ではないことを明示）
+    const status = /not set/.test(fetched.error || '') ? 503 : 500
+    return { ok: false, status, error: fetched.error || 'key lookup failed' }
+  }
+  const f = fetched.fields || {}
+  if (f.revoked === true) return { ok: false, status: 403, error: 'api key revoked' }
+  const expected = String(f.keyHash || '')
+  if (!expected) return { ok: false, status: 500, error: 'api key misconfigured' }
+  const actual = await sha256Hex(presentedKey)
+  if (!timetableTimingSafeEqual(actual, expected)) {
+    return { ok: false, status: 401, error: 'invalid api key' }
+  }
+  // 日次 quota の判定（読み取った値で判定・更新は別途 best-effort）
+  const quota = Number(f.quotaDaily || TIMETABLE_API_DEFAULT_QUOTA)
+  const today = timetableTodayJst()
+  const countToday = (f.dailyDate === today) ? Number(f.dailyCount || 0) : 0
+  if (countToday >= quota) {
+    return { ok: false, status: 429, error: 'daily quota exceeded' }
+  }
+  return { ok: true, keyId, key: f, today, countToday, quota }
+}
+
+/** 利用回数を best-effort で加算する（失敗しても本処理は止めない） */
+async function touchTimetableApiKeyUsage(env, keyId, prev, today) {
+  try {
+    const projectId = env.FIREBASE_PROJECT_ID
+    if (!projectId || !env.FIREBASE_SERVICE_ACCOUNT_JSON) return
+    const sameDay = prev && prev.dailyDate === today
+    const dailyCount = (sameDay ? Number(prev.dailyCount || 0) : 0) + 1
+    const totalCount = Number(prev.totalCount || 0) + 1
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${TIMETABLE_API_COLLECTION}/${encodeURIComponent(keyId)}`
+      + `?updateMask.fieldPaths=dailyDate&updateMask.fieldPaths=dailyCount&updateMask.fieldPaths=totalCount&updateMask.fieldPaths=lastUsedAt`
+    await firestoreFetch(env, url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: {
+          dailyDate: { stringValue: today },
+          dailyCount: { integerValue: String(dailyCount) },
+          totalCount: { integerValue: String(totalCount) },
+          lastUsedAt: { timestampValue: new Date().toISOString() },
+        },
+      }),
+    })
+  } catch (e) {
+    console.error('[timetable-api] usage touch failed:', e && e.message || e)
+  }
+}
+
+function timetableApiError(status, error, extra) {
+  return json({ ok: false, error, ...(extra || {}) }, status)
+}
+
+/** origin の manifest/history を取得する */
+async function fetchTimetableOrigin(env) {
+  const base = (env.APP_BASE_URL || 'https://mito1-tetyo.tech').replace(/\/$/, '')
+  const fetchJson = async (path) => {
+    const res = await fetch(`${base}${path}`, { headers: { 'User-Agent': 'mito1-timetable-api/1.0' } })
+    if (!res.ok) throw new Error(`${path} fetch failed (${res.status})`)
+    return res.json()
+  }
+  const [manifest, historyRaw] = await Promise.all([
+    fetchJson('/timetable/manifest.json'),
+    fetchJson('/timetable/history.json').catch(() => []),
+  ])
+  const history = Array.isArray(historyRaw) ? historyRaw : (Array.isArray(historyRaw && historyRaw.items) ? historyRaw.items : [])
+  return { base, manifest, history }
+}
+
+/** GET /api/v1/timetable/list */
+async function timetableListApi(request, url, env, ctx) {
+  const key = extractTimetableApiKey(request, url)
+  const auth = await verifyTimetableApiKey(key, env)
+  if (!auth.ok) return timetableApiError(auth.status, auth.error)
+  if (ctx && ctx.waitUntil) ctx.waitUntil(touchTimetableApiKeyUsage(env, auth.keyId, auth.key, auth.today))
+  else await touchTimetableApiKeyUsage(env, auth.keyId, auth.key, auth.today)
+
+  let origin
+  try {
+    origin = await fetchTimetableOrigin(env)
+  } catch (e) {
+    console.error('[timetable-api] origin fetch failed:', e)
+    return timetableApiError(502, 'timetable origin unavailable')
+  }
+  // origin URL は一切含めない（API相対パスのみ）
+  const workerOrigin = new URL(request.url).origin
+  return json(buildTimetableListResponse(origin.manifest, origin.history, workerOrigin))
+}
+
+/** GET /api/v1/timetable/image?date=YYYY-MM-DD&slot=0 */
+async function timetableImageApi(request, url, env, ctx) {
+  const key = extractTimetableApiKey(request, url)
+  const auth = await verifyTimetableApiKey(key, env)
+  if (!auth.ok) return timetableApiError(auth.status, auth.error)
+
+  const dateRaw = url.searchParams.get('date') || ''
+  const slotRaw = url.searchParams.get('slot') ?? '0'
+  let dateStr = ''
+  if (dateRaw) {
+    dateStr = sanitizeTimetableDate(dateRaw)
+    if (!dateStr) return timetableApiError(400, 'invalid date (expected YYYY-MM-DD)')
+  }
+  const slot = sanitizeTimetableSlot(slotRaw)
+  if (slot < 0) return timetableApiError(400, 'invalid slot (expected 0-9)')
+
+  let origin
+  try {
+    origin = await fetchTimetableOrigin(env)
+  } catch (e) {
+    console.error('[timetable-api] origin fetch failed:', e)
+    return timetableApiError(502, 'timetable origin unavailable')
+  }
+  // 直近7件の範囲外は 404（過去の蓄積は HISTORY_KEEP=7 のため）
+  const resolved = resolveTimetableOrigin(origin.manifest, origin.history, dateStr, slot)
+  if (resolved.error) {
+    return timetableApiError(resolved.status || 404, resolved.error,
+      resolved.availableDates ? { availableDates: resolved.availableDates.slice(0, TIMETABLE_API_KEEP) } : undefined)
+  }
+  // 7件ルール: history に無い古い日付は history.json 自体に残っていないため 404 になる。
+  // 万一 history.json が7件超で返ってきた場合も直近7件に丸める。
+  const { latest, history } = filterTimetableList(origin.manifest, origin.history)
+  const inRange = !resolved.date
+    || (latest && latestDateOfManifest(origin.manifest, origin.history) === resolved.date)
+    || history.some(e => e && e.date === resolved.date)
+  if (!inRange) {
+    return timetableApiError(404, 'date out of range (last 7 only)',
+      { availableDates: [latestDateOfManifest(origin.manifest, origin.history), ...history.map(e => e.date)].filter(Boolean).slice(0, TIMETABLE_API_KEEP) })
+  }
+
+  const originPath = resolved.dir ? `/timetable/${resolved.dir}/${resolved.file}` : `/timetable/${resolved.file}`
+  let imgRes
+  try {
+    imgRes = await fetch(`${origin.base}${originPath}`, { headers: { 'User-Agent': 'mito1-timetable-api/1.0' } })
+  } catch (e) {
+    console.error('[timetable-api] image fetch failed:', e)
+    return timetableApiError(502, 'timetable image unavailable')
+  }
+  if (!imgRes.ok) {
+    console.error('[timetable-api] image origin status:', imgRes.status, originPath)
+    return timetableApiError(502, 'timetable image unavailable')
+  }
+  const bytes = new Uint8Array(await imgRes.arrayBuffer())
+  if (!bytes.length) return timetableApiError(502, 'timetable image unavailable')
+
+  if (ctx && ctx.waitUntil) ctx.waitUntil(touchTimetableApiKeyUsage(env, auth.keyId, auth.key, auth.today))
+  else await touchTimetableApiKeyUsage(env, auth.keyId, auth.key, auth.today)
+
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      ...CORS,
+      'Content-Type': timetableContentType(resolved.file),
+      'Cache-Control': 'private, max-age=300',
+      'Content-Disposition': 'inline',
+      'X-Timetable-Date': resolved.date || '',
+      'X-Timetable-Slot': String(slot),
+    },
+  })
+}
+
+/** GET /api/v1/timetable/diag（疎通確認・Key必須） */
+async function timetableDiagApi(request, url, env) {
+  const key = extractTimetableApiKey(request, url)
+  const auth = await verifyTimetableApiKey(key, env)
+  if (!auth.ok) return timetableApiError(auth.status, auth.error)
+  try {
+    const origin = await fetchTimetableOrigin(env)
+    const { latest, history } = filterTimetableList(origin.manifest, origin.history)
+    return json({
+      ok: true,
+      base: origin.base,
+      latestDate: latestDateOfManifest(origin.manifest, origin.history),
+      latestUpdatedAt: (origin.manifest && origin.manifest.updatedAt) || '',
+      historyCount: history.length,
+      keep: TIMETABLE_API_KEEP,
+      quota: { today: auth.today, used: auth.countToday, daily: auth.quota },
+    })
+  } catch (e) {
+    return timetableApiError(502, 'timetable origin unavailable')
+  }
 }
 
 // -- JSON response helper -----------------------------------------------

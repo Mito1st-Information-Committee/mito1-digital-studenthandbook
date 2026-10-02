@@ -73,6 +73,40 @@ GAS(10分おき・変化検知) → repository_dispatch → Actionsで画像同�
 - `sheets-images-rt` のトークンは取得ごとに変わるため、差分判定は
   必ず画像バイトのハッシュ比較で行うこと（URL文字列比較は不可）。
 
+## 時間割APIの外部提供（Key式・直近7件）
+
+過去1週間（直近7件）の時間割画像を、APIキーを持つ外部利用者に提供する。
+無料の公開APIではなく、キー必須・日次quota付き（有料提供前提）。
+関連ファイル: `workers/index.js` の時間割APIセクション、
+`workers/test/timetable-api.test.mjs`、`firestore.rules` の `timetableApiKeys`、
+管理画面「時間割APIキー」（`admin/index.html`・`src/admin/main.js`）。
+
+```
+利用者 → Worker /api/v1/timetable/* (?key= or X-API-Key) → originの静的ファイルを代理取得して返却
+```
+
+- `GET /api/v1/timetable/list?key=...` → 一覧JSON（最新＋過去。画像のorigin URLは含まない。API相対パスのみ）。
+- `GET /api/v1/timetable/image?date=YYYY-MM-DD&slot=0&key=...` → 画像バイナリ。
+  `<img src="https://<worker>/api/v1/timetable/image?date=...&slot=0&key=...">` に直接指定できる
+  （`<img>` はヘッダを付けられないためクエリ `?key=`（別名 `?api_key=` / `?apiKey=`）も受ける。通常のfetchでは `X-API-Key` ヘッダ推奨）。
+- `GET /api/v1/timetable/diag?key=...` → origin疎通・quota残量の確認用。
+- キー形式は `mt1_<keyId:12hex>_<secret:48hex>`。発行は管理画面から行い、
+  平文は発行時の一度だけ表示（DBにはSHA-256ハッシュのみ保存）。
+  キー管理は委員会管理者以上のみ（モデレーター不可）。日次上限の既定は1000件/日。
+- Workerは `FIREBASE_SERVICE_ACCOUNT_JSON`（管理者権限）で `timetableApiKeys` を読む。
+  未設定時はAPI全体が503になる。`firestore.rules` 変更後はFirebase Consoleへの適用を忘れないこと。
+- コード修正後は必ずWorkerを再デプロイすること（自動デプロイ設定時は `workers/` 配下の変更で自動反映）。
+
+秘匿の限界（重要）:
+
+- 現行の `public/timetable/` はPagesの静的公開のため、URLを知る者は認証なしで取得できる。
+  本APIは「正規の取得手段をKey制限にする＋origin URLを外部に漏らさない（バイトプロキシ・302なし）」
+  ことで推測取得を難しくするが、完全秘匿ではない。`public/robots.txt` で検索エンジンの
+  クロールを抑止しているが、決定的な対策ではない。
+- 完全秘匿にするには、時間割画像の配置をR2等のプライベート配置に移し、
+  生徒アプリ側も含めてWorker経由取得に寄せる必要がある（将来の移行課題）。
+  移行までは `history.json`・`manifest.json` が公開であることを前提に運用すること。
+
 ## セットアップと開発
 
 ### ローカル開発環境の構築

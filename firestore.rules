@@ -319,6 +319,25 @@ service cloud.firestore {
     }
 
     // =============================================
+    // Timetable API keys — 時間割APIのKey管理 (外部提供・有料前提)
+    //  - read/write: 委員会管理者以上のみ（モデレーター不可）。
+    //    keyHash（秘密鍵のSHA-256）は平文キーと同等の機密ではないが、
+    //    発行・無効化・quota変更は課金に直結するため管理者に限定する。
+    //  - Workers はサービスアカウント（管理者権限・ルール適用外）で読むため、
+    //    クライアントからの直接読み取りは不要。API利用者は ?key= で画像のみ取得する。
+    // フィールド:
+    //  keyId, keyHash(sha256hex), keyPrefix(表示用), name, quotaDaily,
+    //  revoked, revokedAt, dailyDate(YYYY-MM-DD JST), dailyCount, totalCount,
+    //  lastUsedAt, createdAt, createdBy, note
+    // =============================================
+    match /timetableApiKeys/{keyId} {
+      allow read: if isCommitteeAdmin();
+      allow create: if isCommitteeAdmin();
+      allow update: if isCommitteeAdmin();
+      allow delete: if isCommitteeAdmin();
+    }
+
+    // =============================================
     // Feature flags — βテスト管理 (Issue #53)
     //  - read: 全員可（未ログインでも判定できるよう公開。
     //    フラグ自体に機密情報は持たせないこと）

@@ -957,6 +957,10 @@ a{color:inherit}
         <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>
         メール送信
       </button>
+      <button class="adm-sb-item" data-sec="apikeys" id="sbApiKeys">
+        <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        時間割APIキー
+      </button>
       <button class="adm-sb-item" data-sec="cases">
         <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
         公欠申請ケース
@@ -1363,6 +1367,56 @@ taro@example.com,山田 太郎</textarea>
           <div class="mail-progress" id="mailProgress" style="display:none"><div id="mailProgressBar"></div></div>
           <div class="mail-result" id="mailResult" style="margin-top:10px"></div>
         </div>
+        </div>
+      </section>
+
+      <!-- TIMETABLE API KEYS（時間割APIのKey発行・管理。有料提供前提） -->
+      <section class="adm-section" id="sec-apikeys">
+        <div class="adm-section-header">
+          <div class="adm-section-heading">
+            <div class="adm-section-title">時間割APIキー</div>
+            <div class="adm-section-sub">過去1週間（直近7件）の時間割画像を外部提供するAPIキーの発行・無効化（委員会管理者以上のみ）</div>
+          </div>
+          <div class="adm-section-tools">
+            <button class="btn-ghost" onclick="loadApiKeys()">
+              <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              更新
+            </button>
+          </div>
+        </div>
+        <div id="apiKeysForbidden" style="display:none"></div>
+        <div id="apiKeysBody">
+        <div style="font-size:11.5px;color:var(--text-3);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;line-height:1.8">
+          ・キーは <code>mt1_&lt;keyId&gt;_&lt;secret&gt;</code> 形式。平文は発行時の一度だけ表示されます（DBにはSHA-256ハッシュのみ保存）。<br>
+          ・利用者は <code>GET /api/v1/timetable/list?key=...</code> で一覧、<code>GET /api/v1/timetable/image?date=YYYY-MM-DD&amp;slot=0&amp;key=...</code> で画像バイナリを取得します。<code>&lt;img src=".../image?date=...&amp;slot=0&amp;key=..."&gt;</code> に直接指定できます。<br>
+          ・画像のorigin URLはAPI応答に含めません（推測取得の抑止）。ただし現行の <code>public/timetable/</code> はPagesの静的公開のため完全秘匿にはR2等への移行が必要です。
+        </div>
+        <div class="panel panel-pad" style="margin-bottom:14px">
+          <div class="form-label">新しいキーを発行</div>
+          <div class="mail-grid">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="apiKeyName">利用者名・用途 <span style="color:var(--enjii)">必須</span></label>
+              <input class="form-input" id="apiKeyName" placeholder="例：○○塾 ・ 時間割連携" maxlength="80">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="apiKeyQuota">日次上限（件/日）</label>
+              <input class="form-input" id="apiKeyQuota" type="number" min="1" max="100000" value="1000">
+            </div>
+            <div class="form-group full" style="margin-bottom:0">
+              <label class="form-label" for="apiKeyNote">メモ（任意）</label>
+              <input class="form-input" id="apiKeyNote" placeholder="例：契約プラン・担当者・期限など" maxlength="200">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">
+            <button class="btn-add" onclick="issueTimetableApiKey(event)">
+              <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              キーを発行する
+            </button>
+            <span class="mail-hint">発行直後に表示される平文キーを利用者に渡してください（再表示不可）。</span>
+          </div>
+          <div id="apiKeyIssued" style="margin-top:12px"></div>
+        </div>
+        <div id="apiKeysList"><div class="loading-spinner"><div class="spinner"></div>読み込み中...</div></div>
         </div>
       </section>
 
