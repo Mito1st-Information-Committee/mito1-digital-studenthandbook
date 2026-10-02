@@ -19,7 +19,7 @@ import {
 import {
   FLAG_STATUSES, FLAG_STATUS_LABELS, validateFlagKey, normalizeFlag, KNOWN_FLAGS,
 } from '../featureFlags.js'
-import { classLabel, classOptionTags, normalizeClass } from '../classOptions.js'
+import { classLabel, classOptionTags, normalizeClass, isValidClassForGrade } from '../classOptions.js'
 
 // =============================================
 // STATE
@@ -2631,7 +2631,7 @@ window.editUser = async function (uid) {
           <label>クラス <span class="form-tag req" id="f_user_class_req" style="${['moderator', 'admin_student'].includes(user.role) ? '' : 'display:none'}">必須</span></label>
           <select id="f_user_class">
             <option value="">—</option>
-            ${classOptionTags(user.class, { includeEmpty: true })}
+            ${classOptionTags({ grade: user.grade, selected: user.class, includeEmpty: true })}
           </select>
         </div>
         <div>
@@ -2681,6 +2681,17 @@ window.editUser = async function (uid) {
   }
   roleSel?.addEventListener('change', syncStudentFields)
 
+  // 学年変更に合わせてクラス選択肢を作り直す（7組は3年のみのため）。
+  // その学年で選べないクラスは空欄（未設定）へ戻す
+  const gradeSel = $('f_user_grade')
+  gradeSel?.addEventListener('change', () => {
+    const classSel = $('f_user_class')
+    if (!classSel) return
+    classSel.innerHTML = classOptionTags({
+      grade: gradeSel.value, selected: classSel.value, includeEmpty: true,
+    })
+  })
+
   // ユーザー編集専用の保存処理を一時的にバインド
   const saveBtn = $('modalSaveBtn')
   saveBtn.onclick = async function () {
@@ -2695,6 +2706,10 @@ window.editUser = async function (uid) {
       const targetRole = data.role || user.role
       if (['student', 'moderator', 'admin_student'].includes(targetRole)) {
         const g = val('f_user_grade'), c = val('f_user_class'), n = val('f_user_number')
+        const grade = g ? Number(g) : user.grade
+        if (c && !isValidClassForGrade(c, grade)) {
+          throw new Error('その学年では選択できないクラスです（7組は3年のみ）')
+        }
         // モデレーター・管理者（生徒）は生徒前提のため学年・クラス・番号は必須
         if (['moderator', 'admin_student'].includes(targetRole)) {
           if (!g) throw new Error('学年を入力してください（モデレーター・管理者（生徒）は必須）')
@@ -2707,6 +2722,10 @@ window.editUser = async function (uid) {
           if (g) data.grade  = Number(g)
           if (c) data.class  = normalizeClass(c)
           if (n) data.number = Number(n)
+          // 学年変更で既存のクラスが使えなくなった場合は未設定へ戻す
+          if (data.class === undefined && user.class && !isValidClassForGrade(user.class, grade)) {
+            data.class = deleteField()
+          }
         }
       }
       await updateDoc(doc(db, 'users', uid), data)
