@@ -22,6 +22,7 @@ import {
   doc, setDoc, getDoc, getDocs, collection, serverTimestamp, query, where,
   updateDoc, arrayUnion, deleteField,
 } from 'firebase/firestore'
+import { normalizeClass, isValidClassForGrade } from './classOptions.js'
 
 // =============================================
 // Auth永続化ポリシー（#54）
@@ -78,13 +79,13 @@ export async function registerStudent({ email, password, name, grade, classLabel
   // 学年・クラス・出席番号は必須。Authユーザー作成前に弾くことで孤児ユーザーを残さない
   const num = Number(number)
   const g = Number(grade)
-  const c = Number(classLabel)
+  const c = normalizeClass(classLabel)
   if (!name || !Number.isInteger(num) || num < 1 || num > 50) {
     const e = new Error('出席番号を入力してください（1〜50）')
     e.code = 'auth/invalid-attendance-number'
     throw e
   }
-  if (!Number.isInteger(g) || g < 1 || g > 3 || !Number.isInteger(c) || c < 1 || c > 6) {
+  if (!Number.isInteger(g) || g < 1 || g > 3 || !isValidClassForGrade(c, g)) {
     const e = new Error('学年・クラスが不正です')
     e.code = 'auth/invalid-class-info'
     throw e
