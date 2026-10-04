@@ -5,10 +5,10 @@
  * Firestore の users.class は「数値」で保持する（既存データ・Security Rules との
  * 互換性のため）。内部値とラベルの対応は下表のとおり。
  *
- *   1〜6 → 1組〜6組（全学年）
+ *   1〜6 → 1組〜6組（全学年・高校）
  *   7    → 7組（3年のみ。`grades: [3]` の指定で学年連動の選択肢から出し分けする）
- *   8    → A組
- *   9    → B組
+ *   8    → A組（附属中学校のみ）
+ *   9    → B組（附属中学校のみ）
  *
  * ラベルや追加クラスを変えたいときは、このファイルだけ編集すれば
  * 登録フォーム・管理画面・マイページへ反映される。
@@ -27,6 +27,18 @@ export const CLASS_OPTIONS = [
 ]
 
 const LABEL_BY_VALUE = new Map(CLASS_OPTIONS.map(o => [String(o.value), o.label]))
+
+/**
+ * 附属中学校のクラス内部値（A組=8 / B組=9）。
+ * 高校に A組・B組は存在しないため、この値を持つユーザーは中学生として扱う。
+ */
+export const JUNIOR_HIGH_CLASS_VALUES = [8, 9]
+
+/** 附属中学校のクラス（A組/B組）かどうか */
+export function isJuniorHighClass(v) {
+  const n = normalizeClass(v)
+  return n !== null && JUNIOR_HIGH_CLASS_VALUES.includes(n)
+}
 
 export const MAX_CLASS_VALUE = CLASS_OPTIONS[CLASS_OPTIONS.length - 1].value
 

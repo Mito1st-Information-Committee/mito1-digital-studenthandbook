@@ -19,7 +19,7 @@ import {
 import {
   FLAG_STATUSES, FLAG_STATUS_LABELS, validateFlagKey, normalizeFlag, KNOWN_FLAGS,
 } from '../featureFlags.js'
-import { classLabel, classOptionTags, normalizeClass, isValidClassForGrade } from '../classOptions.js'
+import { classLabel, classOptionTags, normalizeClass, isValidClassForGrade, isJuniorHighClass } from '../classOptions.js'
 
 // =============================================
 // STATE
@@ -2345,6 +2345,18 @@ function roleAttrs(u) {
   return attrs
 }
 
+/**
+ * 附属中学校バッジ（A組/B組は中学のみのため、中学生と一目で分かるように表示）。
+ * 該当しない場合は空文字を返す。
+ */
+function schoolBadge(u) {
+  if ((u.role === 'student' || u.role === 'moderator' || u.role === 'admin_student')
+    && isJuniorHighClass(u.class)) {
+    return '<span class="attr attr-jh">中学</span>'
+  }
+  return ''
+}
+
 function approvalCell(u, iCanToggleAppr) {
   if (u.role !== 'student') return '<span style="color:var(--text-3)">—</span>'
   const cls = u.approved ? 'badge-ok' : 'badge-warn'
@@ -2454,8 +2466,8 @@ function renderUsers() {
                 <td>${ident(u)}</td>
                 <td>${rolePill(u)}</td>
                 <td class="num">
-                  ${roleAttrs(u).length
-                    ? `<div class="user-attrs" style="justify-content:center">${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}</div>`
+                  ${(schoolBadge(u) || roleAttrs(u).length)
+                    ? `<div class="user-attrs" style="justify-content:center">${schoolBadge(u)}${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}</div>`
                     : '<span style="color:var(--text-3)">—</span>'}
                 </td>
                 <td class="num">${approvalCell(u, iCanToggleAppr)}</td>
@@ -2478,7 +2490,7 @@ function renderUsers() {
             ${rolePill(u)}
           </div>
           <div class="user-card-attrs">
-            ${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}
+            ${schoolBadge(u)}${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}
             ${approvalCell(u, iCanToggleAppr)}
             ${lineCell(u, canUnlink(u))}
             ${pushCell(u)}
