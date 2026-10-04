@@ -1,0 +1,59 @@
+name: バグ報告
+description: 不具合の報告はこちら（認証・メール・PWA等）
+title: "[Bug] "
+labels: ["bug", "needs-spec"]
+body:
+  - type: textarea
+    id: overview
+    attributes:
+      label: 概要
+      description: 何が起きたか1行で
+      placeholder: 例）アカウント作成時に37組が選択肢に出ない
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      description: 手順・画面・操作を具体的に
+      placeholder: |
+        1. auth.html を開く
+        2. 学年・組を選択する
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待値 / 実際
+      placeholder: |
+        期待値：37組が選択できる
+        実際：選択肢に存在しない
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 環境
+      description: OS / ブラウザ / PWAかブラウザか
+      placeholder: 例）iOS 18 / Safari / PWA, Windows 11 / Chrome
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: スクショ・ログ
+      description: 画像・コンソールエラーがあれば
+    validations:
+      required: false
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 優先度の提案
+      options:
+        - priority:high（利用不可・多数影響）
+        - priority:medium（回避策あり・一部影響）
+        - priority:low（軽微）
+      default: 1
+    validations:
+      required: false

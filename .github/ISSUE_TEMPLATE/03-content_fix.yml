@@ -1,0 +1,36 @@
+name: 手帳コンテンツ修正
+description: 年間行事・教育課程・諸規定などデータ修正はこちら
+title: "[Content] "
+labels: ["content", "priority:low"]
+body:
+  - type: input
+    id: target
+    attributes:
+      label: 対象ページ・項目
+      description: 手帳内の場所を明記
+      placeholder: 例）諸規定 > 保健室利用規定 / 年間主要行事 7月
+    validations:
+      required: true
+  - type: textarea
+    id: before-after
+    attributes:
+      label: 修正前 / 修正後
+      placeholder: |
+        修正前：1, 3, 2 の順になっている
+        修正後：1, 2, 3 の順に並べ替える
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: 出典・根拠
+      description: 生徒手帳冊子・学校発表資料等
+      placeholder: 例）2026年度生徒手帳 p.XX
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 確認事項
+      options:
+        - label: 月ごとにPRを分けられる場合は分けた
