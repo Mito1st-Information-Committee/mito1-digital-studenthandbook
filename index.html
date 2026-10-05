@@ -2199,6 +2199,7 @@ import { onAuth, getCurrentProfile, logout, getTeacherDirectory,
   linkGoogleAccount, unlinkGoogleAccount, isGoogleLinked } from '/src/auth.js'
 import { createCase, getMyCases, deleteCaseByStudent } from '/src/cases.js'
 import { canUseTeacherSuggest, canAccessAdminPanel, profileBadges, approvalNotice } from '/src/roles.js'
+import { classLabel } from '/src/classOptions.js'
 import { beginLineLink, watchLineSession, completeLineLink, cancelLineSession, cleanupLineSessions, unlinkLine, isLinked } from '/src/line.js'
 import {
   fetchAnnouncements, visibleAnnouncements, categoryMeta, toMillis,
@@ -2405,7 +2406,8 @@ function updateAuthUI() {
     if (name) name.textContent = profile.name || _currentUser.email
     if (info) {
       const g = profile.grade, c = profile.class, n = profile.number
-      info.textContent = (g && c) ? `${g}年${c}組${n ? ' ' + n + '番' : ''}` : _currentUser.email
+      const clsLabel = classLabel(c)
+      info.textContent = (g && clsLabel) ? `${g}年${clsLabel}${n ? ' ' + n + '番' : ''}` : _currentUser.email
     }
 
     // ロール／承認状態バッジ

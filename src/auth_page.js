@@ -1,6 +1,7 @@
 import { onAuth, login, registerStudent, registerTeacher, resetPassword, getCurrentProfile,
   loginWithGoogle } from './auth.js'
 import { fetchFeatureFlags, getFlagStatus, FLAG_STATUSES } from './featureFlags.js'
+import { classOptionTags } from './classOptions.js'
 
 const BASE = ''
 
@@ -56,10 +57,7 @@ document.getElementById('mainCard').innerHTML = `
         </div>
         <div class="form-group">
           <label class="form-label">クラス <span class="req">必須</span></label>
-          <select class="form-input" id="regClass">
-            <option value="1">1組</option><option value="2">2組</option><option value="3">3組</option>
-            <option value="4">4組</option><option value="5">5組</option><option value="6">6組</option>
-          </select>
+          <select class="form-input" id="regClass">${classOptionTags({ grade: 1 })}</select>
         </div>
         <div class="form-group">
           <label class="form-label">出席番号 <span class="req">必須</span></label>
@@ -116,6 +114,8 @@ document.getElementById('googleLoginBtn')?.addEventListener('click', doGoogleLog
 document.getElementById('regStudentBtn').addEventListener('click', doRegisterStudent)
 document.getElementById('regTeacherBtn').addEventListener('click', doRegisterTeacher)
 document.getElementById('resetLink').addEventListener('click', showReset)
+// 学年が変わると選択できるクラスも変わる（7組は3年のみ）ため作り直す
+document.getElementById('regGrade').addEventListener('change', syncRegClassOptions)
 // Googleボタン表示は featureFlags 'google-auth' で制御。
 // ※ 未ログイン時はβテスター判定ができないため、disabled 以外（beta/enabled）で表示し、
 //    beta の場合はβバッジを付ける。厳密なゲートはマイページの連携ボタン側で行う
@@ -247,6 +247,16 @@ function showLinkGuide() {
 }
 
 // ── 生徒新規登録 ──────────────────────────────────────────────────
+// 学年に合わせたクラス選択肢に作り直す（3年のときだけ7組が出る）。
+// 学年変更で選べなくなったクラスは既定（先頭）へ戻す
+function syncRegClassOptions() {
+  const grade = document.getElementById('regGrade').value
+  const sel = document.getElementById('regClass')
+  const prev = sel.value
+  sel.innerHTML = classOptionTags({ grade, selected: prev })
+  if (!sel.value) sel.selectedIndex = 0
+}
+
 async function doRegisterStudent() {
   clearErr()
   const name  = document.getElementById('regName').value.trim()

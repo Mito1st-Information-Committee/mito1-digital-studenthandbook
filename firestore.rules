@@ -133,6 +133,8 @@ service cloud.firestore {
       // 作成: 本人の登録時のみ
       // （role は student/teacher のみ。approved / betaTester 付きでの登録は不可 — Issue #53）
       // 生徒は学年・クラス・出席番号が必須（空欄→0での登録を防ぐ）
+      // クラスは 1〜9 の数値。7 は3年のみ、A組=8 / B組=9 は全学年。
+      // （7組は3年限定のため、学年との組み合わせも検証する）
       allow create: if isOwnerUid(userId)
         && request.resource.data.role in ['student', 'teacher']
         && (!('approved' in request.resource.data) || request.resource.data.approved == false)
@@ -144,7 +146,8 @@ service cloud.firestore {
             && request.resource.data['class'] is number
             && request.resource.data.number is number
             && request.resource.data.grade >= 1 && request.resource.data.grade <= 3
-            && request.resource.data['class'] >= 1 && request.resource.data['class'] <= 6
+            && request.resource.data['class'] >= 1 && request.resource.data['class'] <= 9
+            && (request.resource.data['class'] != 7 || request.resource.data.grade == 3)
             && request.resource.data.number >= 1 && request.resource.data.number <= 50
           )
         );

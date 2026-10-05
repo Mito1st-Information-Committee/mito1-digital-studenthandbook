@@ -19,6 +19,7 @@ import {
 import {
   FLAG_STATUSES, FLAG_STATUS_LABELS, validateFlagKey, normalizeFlag, KNOWN_FLAGS,
 } from '../featureFlags.js'
+import { classLabel, classOptionTags, normalizeClass, isValidClassForGrade, isJuniorHighClass } from '../classOptions.js'
 
 // =============================================
 // STATE
@@ -2342,11 +2343,23 @@ function roleAttrs(u) {
   // 生徒はもちろん、モデレーター・管理者（生徒）も生徒が前提のため学年・クラス・番号を持つ
   if (u.role === 'student' || u.role === 'moderator' || u.role === 'admin_student') {
     if (u.grade)  attrs.push(`${u.grade}年`)
-    if (u.class)  attrs.push(`${u.class}組`)
+    if (u.class)  attrs.push(classLabel(u.class))
     if (u.number) attrs.push(`${u.number}番`)
     if (!u.grade || !u.class) attrs.push('⚠ 未設定')
   }
   return attrs
+}
+
+/**
+ * 附属中学校バッジ（A組/B組は中学のみのため、中学生と一目で分かるように表示）。
+ * 該当しない場合は空文字を返す。
+ */
+function schoolBadge(u) {
+  if ((u.role === 'student' || u.role === 'moderator' || u.role === 'admin_student')
+    && isJuniorHighClass(u.class)) {
+    return '<span class="attr attr-jh">中学</span>'
+  }
+  return ''
 }
 
 function approvalCell(u, iCanToggleAppr) {
@@ -2458,8 +2471,8 @@ function renderUsers() {
                 <td>${ident(u)}</td>
                 <td>${rolePill(u)}</td>
                 <td class="num">
-                  ${roleAttrs(u).length
-                    ? `<div class="user-attrs" style="justify-content:center">${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}</div>`
+                  ${(schoolBadge(u) || roleAttrs(u).length)
+                    ? `<div class="user-attrs" style="justify-content:center">${schoolBadge(u)}${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}</div>`
                     : '<span style="color:var(--text-3)">—</span>'}
                 </td>
                 <td class="num">${approvalCell(u, iCanToggleAppr)}</td>
@@ -2482,7 +2495,7 @@ function renderUsers() {
             ${rolePill(u)}
           </div>
           <div class="user-card-attrs">
-            ${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}
+            ${schoolBadge(u)}${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}
             ${approvalCell(u, iCanToggleAppr)}
             ${lineCell(u, canUnlink(u))}
             ${pushCell(u)}
@@ -2635,7 +2648,7 @@ window.editUser = async function (uid) {
           <label>クラス <span class="form-tag req" id="f_user_class_req" style="${['moderator', 'admin_student'].includes(user.role) ? '' : 'display:none'}">必須</span></label>
           <select id="f_user_class">
             <option value="">—</option>
-            ${[1, 2, 3, 4, 5, 6].map(i => `<option value="${i}"${String(user.class) === String(i) ? ' selected' : ''}>${i}組</option>`).join('')}
+            ${classOptionTags({ grade: user.grade, selected: user.class, includeEmpty: true })}
           </select>
         </div>
         <div>
@@ -2685,6 +2698,17 @@ window.editUser = async function (uid) {
   }
   roleSel?.addEventListener('change', syncStudentFields)
 
+  // 学年変更に合わせてクラス選択肢を作り直す（7組は3年のみのため）。
+  // その学年で選べないクラスは空欄（未設定）へ戻す
+  const gradeSel = $('f_user_grade')
+  gradeSel?.addEventListener('change', () => {
+    const classSel = $('f_user_class')
+    if (!classSel) return
+    classSel.innerHTML = classOptionTags({
+      grade: gradeSel.value, selected: classSel.value, includeEmpty: true,
+    })
+  })
+
   // ユーザー編集専用の保存処理を一時的にバインド
   const saveBtn = $('modalSaveBtn')
   saveBtn.onclick = async function () {
@@ -2699,18 +2723,26 @@ window.editUser = async function (uid) {
       const targetRole = data.role || user.role
       if (['student', 'moderator', 'admin_student'].includes(targetRole)) {
         const g = val('f_user_grade'), c = val('f_user_class'), n = val('f_user_number')
+        const grade = g ? Number(g) : user.grade
+        if (c && !isValidClassForGrade(c, grade)) {
+          throw new Error('その学年では選択できないクラスです（7組は3年のみ）')
+        }
         // モデレーター・管理者（生徒）は生徒前提のため学年・クラス・番号は必須
         if (['moderator', 'admin_student'].includes(targetRole)) {
           if (!g) throw new Error('学年を入力してください（モデレーター・管理者（生徒）は必須）')
           if (!c) throw new Error('クラスを入力してください（モデレーター・管理者（生徒）は必須）')
           if (!n) throw new Error('出席番号を入力してください（モデレーター・管理者（生徒）は必須）')
           data.grade  = Number(g)
-          data.class  = c
+          data.class  = normalizeClass(c)
           data.number = Number(n)
         } else {
           if (g) data.grade  = Number(g)
-          if (c) data.class  = c
+          if (c) data.class  = normalizeClass(c)
           if (n) data.number = Number(n)
+          // 学年変更で既存のクラスが使えなくなった場合は未設定へ戻す
+          if (data.class === undefined && user.class && !isValidClassForGrade(user.class, grade)) {
+            data.class = deleteField()
+          }
         }
       }
       await updateDoc(doc(db, 'users', uid), data)
