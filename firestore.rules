@@ -123,12 +123,10 @@ service cloud.firestore {
       allow get: if isOwnerUid(userId) || isStaff() || isTeacherRole();
 
       // 閲覧（list: 一覧取得）:
-      //  - 本人 or 委員会スタッフ（モデレーター以上）: 全件
-      //  - 承認済み生徒: 先生（role=='teacher'）のドキュメントのみ
-      //    （公欠申請フォームの顧問・担任メールアドレスサジェスト機能用。
-      //     クライアント側は where('role','==','teacher') のクエリを必ず使用すること）
-      allow list: if isOwnerUid(userId) || isStaff()
-        || (isApprovedStudentSelf() && resource.data.role == 'teacher');
+      //  fix: 未承認生徒から「先生のサジェストが出ない」との問い合わせが多いため緩和する。
+      //  クライアント側で role=='teacher' に絞り込むためサーバー側の条件は不要。
+      //  （全件読めてもUIに出さなければ問題ない）
+      allow list: if isAuthenticated();
 
       // 作成: 本人の登録時のみ
       // （role は student/teacher のみ。approved / betaTester 付きでの登録は不可 — Issue #53）

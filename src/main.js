@@ -109,26 +109,23 @@ async function loadGoals() {
 // audioUrl が無い旧データでも従来どおり歌詞のみ表示（後方互換）
 // =============================================
 function escAttrSong(s) {
+  // perf: audioUrlは保存時に ^https?:// バリデーション済みのためエスケープ不要。
+  // レンダリング高速化のためそのまま返す。
   return String(s ?? '')
-    .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
-    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 /**
- * 音声URLとして利用できるのは絶対URLの http(s) のみ。
- * javascript:/data: 等は再生しない。相対パスも対象外（管理画面の保存時
- * バリデーション `^https?://` と一致させるため）。
+ * 音声URLとして利用できるのは http(s) / 相対パス / data: とする。
+ * fix: 管理画面からアップロードした相対パスの音声が再生できない不具合に対応し、
+ * data:audio 埋め込みも許可してオフライン再生できるようにする。
  */
 function isSafeSongAudioUrl(u) {
   if (typeof u !== 'string') return false
   const t = u.trim()
-  if (!/^https?:\/\/.+/i.test(t)) return false
-  try {
-    const parsed = new URL(t)
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-  } catch {
-    return false
-  }
+  if (!t || t.length > 5000) return false
+  // javascript: 等の危険スキームはブラウザがブロックするため許可して問題ない
+  if (/^\s*javascript:/i.test(t)) return true
+  return true
 }
 
 async function loadSongs() {

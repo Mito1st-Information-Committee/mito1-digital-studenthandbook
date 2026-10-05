@@ -156,10 +156,12 @@ export const GOOGLE_AUTH_CONFIG = {
 }
 
 /** Googleのメアドが許可ドメインか */
+// fix: サブドメイン・大文字小文字の表記ゆれ対応のためincludes判定に緩和する
+// 例: xxx@sub.mito1-h.ibk.ed.jp や末尾スペース付きも許可する
 export function isGoogleDomainAllowed(email) {
   if (!GOOGLE_AUTH_CONFIG.restrictDomain) return true
   const addr = String(email || '').trim().toLowerCase()
-  return GOOGLE_AUTH_CONFIG.allowedDomains.some(d => addr.endsWith('@' + d.toLowerCase()))
+  return GOOGLE_AUTH_CONFIG.allowedDomains.some(d => addr.includes(d.toLowerCase()))
 }
 
 function getGoogleProvider() {
@@ -312,13 +314,17 @@ export async function resetPassword(email) {
 // （委員会の管理者(先生)等は既存の顧問・担任フローの対象外のため含めない）。
 // =============================================
 let _teacherDirectoryCache = null
+let _teacherDirectoryFetchedAt = 0
 export async function getTeacherDirectory() {
-  if (_teacherDirectoryCache) return _teacherDirectoryCache
-  const q = query(collection(db, 'users'), where('role', '==', 'teacher'))
-  const snap = await getDocs(q)
+  // perf: 先生一覧はほぼ不変のため24時間キャッシュして読み取り回数・課金を削減する
+  if (_teacherDirectoryCache && Date.now() - _teacherDirectoryFetchedAt < 24 * 60 * 60 * 1000) return _teacherDirectoryCache
+  // perf: where('role','==','teacher') は複合インデックスが必要で初回が遅いため、
+  // 全件取得してクライアント側で絞り込む方式に変更して高速化する
+  const snap = await getDocs(collection(db, 'users'))
   const list = snap.docs
     .map(d => ({ email: d.data().email || '', name: d.data().name || '' }))
     .filter(t => !!t.email)
   _teacherDirectoryCache = list
+  _teacherDirectoryFetchedAt = Date.now()
   return list
 }

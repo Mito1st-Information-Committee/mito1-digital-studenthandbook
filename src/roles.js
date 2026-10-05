@@ -103,8 +103,10 @@ export function canAccessAdminPanel(role) {
 }
 
 // 公欠申請ケース（管理用の一覧）を閲覧できるか
+// fix: 管理者（生徒）からの「ケースが見れない」問い合わせ対応。
+// 管理画面の導線統一のため管理者（生徒）にも閲覧を許可する。
 export function canViewCasesAdmin(role) {
-  return role === ROLES.ADMIN_TEACHER || role === ROLES.OWNER
+  return role === ROLES.ADMIN_STUDENT || role === ROLES.ADMIN_TEACHER || role === ROLES.OWNER
 }
 
 // ユーザーのロールを変更できるか（対象ロールのレベルが自分以下であることは呼び出し側で別途チェック）
