@@ -1,5 +1,23 @@
 [
   {
+    "date": "2026-10-13",
+    "updatedAt": "2026-10-13T06:31:25+09:00",
+    "updatedAtLabel": "2026年10月13日 6:31更新",
+    "dir": "history/2026-10-13",
+    "images": [
+      {
+        "file": "slot-0.jpg",
+        "hash": "1ca336514a5356c24919c8365384bbfc57d0a716cfec53673c2f1033ffe3fc0c",
+        "bytes": 37553
+      },
+      {
+        "file": "slot-1.jpg",
+        "hash": "77cb3b539f9a53d7a71649ee65d505c6e46141ade848792c5138a682c0300716",
+        "bytes": 81439
+      }
+    ]
+  },
+  {
     "date": "2026-10-12",
     "updatedAt": "2026-10-12T12:20:58+09:00",
     "updatedAtLabel": "2026年10月12日 12:20更新",
@@ -94,19 +112,6 @@
         "file": "slot-0.jpg",
         "hash": "752b4b189b6331fcaffb8ed5824688c5b984fd055fde82f4066a0f89780c8d11",
         "bytes": 132171
-      }
-    ]
-  },
-  {
-    "date": "2026-10-06",
-    "updatedAt": "2026-10-06T16:00:56+09:00",
-    "updatedAtLabel": "2026年10月6日 16:00更新",
-    "dir": "history/2026-10-06",
-    "images": [
-      {
-        "file": "slot-0.jpg",
-        "hash": "dd870b0b38081c311c9b196ea8763f1850e66709c017a721914a3e96fd9ea22b",
-        "bytes": 131607
       }
     ]
   }
