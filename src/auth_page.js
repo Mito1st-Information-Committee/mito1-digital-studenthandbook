@@ -1,5 +1,5 @@
 import { onAuth, login, registerStudent, registerTeacher, resetPassword, getCurrentProfile,
-  loginWithGoogle } from './auth.js'
+  loginWithGoogle, ensureUserDoc } from './auth.js'
 import { fetchFeatureFlags, getFlagStatus, FLAG_STATUSES } from './featureFlags.js'
 import { classOptionTags } from './classOptions.js'
 
@@ -174,6 +174,10 @@ function fbErr(code) {
     'auth/weak-password':        'パスワードは6文字以上にしてください',
     'auth/invalid-email':        'メールアドレスの形式が正しくありません',
     'auth/too-many-requests':    'しばらく時間をおいてから再試行してください',
+    'auth/network-request-failed': '通信に失敗しました。接続を確認して再試行してください',
+    'permission-denied':         'ユーザー情報の保存に失敗しました（権限エラー）。時間をおいて再試行してください',
+    'unavailable':               'サーバーに接続できませんでした。再試行してください',
+    'firestore/write-not-verified': '登録情報の確認に失敗しました。再試行してください',
     'auth/invalid-attendance-number': '出席番号を入力してください（1〜50）',
     'auth/invalid-class-info': '学年・クラスが不正です',
     'auth/popup-closed-by-user': 'Googleの選択画面が閉じられました。もう一度お試しください',
@@ -202,7 +206,10 @@ async function doLogin() {
   if (!email || !pass) { showErr('メールアドレスとパスワードを入力してください'); return }
   setBtn('loginBtn', true, 'ログイン')
   try {
-    await login(email, pass)
+    const user = await login(email, pass)
+    // 過去の登録失敗で Firestore ドキュメントが無い孤児はここで修復する。
+    // 修復できなくてもログイン自体は継続（マイページ側で再試行される）。
+    try { await ensureUserDoc(user) } catch (e) { console.warn('[auth] ensureUserDoc failed', e) }
     // onAuth がリダイレクト
     // ※ Google連携はマイページの連携ボタンからのみ行う。
     //   ここで自動リンクしない（解除後に再リンクされて「解除できない」に見える原因になるため）

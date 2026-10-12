@@ -1,5 +1,5 @@
 import { auth } from './firebase.js'
-import { onAuth, getCurrentProfile, logout } from './auth.js'
+import { onAuth, getCurrentProfile, logout, ensureUserDoc } from './auth.js'
 import { getTeacherCases, approveByTeacher, rejectByTeacher } from './cases.js'
 
 const STATUS_LABEL = {
@@ -17,6 +17,13 @@ onAuth(async user => {
   if (!user) { location.href = '/auth.html'; return }
   try {
     myProfile = await getCurrentProfile(user)
+    if (!myProfile) {
+      // 過去の登録失敗による孤児の可能性があるため修復を試みる（先生ヒント付き）。
+      try {
+        const { profile } = await ensureUserDoc(user, { role: 'teacher' })
+        myProfile = profile
+      } catch (e) { console.warn('[teacher] ensureUserDoc failed', e) }
+    }
     if (!myProfile) {
       // users ドキュメントが無い場合、auth 情報から最低限のプロフィールを構築
       myProfile = { uid: user.uid, email: user.email, name: user.email, role: 'teacher' }
