@@ -71,7 +71,12 @@ GAS(10分おき・変化検知) → repository_dispatch → Actionsで画像同�
   不可ならclassicの `public_repo`）。GAS側はスクリプトプロパティ `GH_PAT`、
   Push送信用にActions secret `FIREBASE_SERVICE_ACCOUNT_JSON` も別途必要。
 - `sheets-images-rt` のトークンは取得ごとに変わるため、差分判定は
-  必ず画像バイトのハッシュ比較で行うこと（URL文字列比較は不可）。
+  必ずダウンロード後の比較で行うこと（URL文字列比較は不可）。
+  さらにGoogle側がJPEGを再エンコードするようになりバイト一致では
+  誤検出する（2026-10に確認）ため、最終判定は画素の見た目比較
+  （`timetable_sync.py` の `visual_equal`）で行うこと。
+  GAS側はデコード不可のため枚数＋サイズ許容の粗い判定に留め、
+  真の判定はActions側に任せる。
 
 ## 時間割APIの外部提供（Key式・直近7件）
 
