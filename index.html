@@ -2911,7 +2911,7 @@ if('serviceWorker' in navigator){
 import { loadAllData } from '/src/main.js'
 import { db } from '/src/firebase.js'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
-import { onAuth, getCurrentProfile, logout, getTeacherDirectory } from '/src/auth.js'
+import { onAuth, getCurrentProfile, logout, getTeacherDirectory, ensureUserDoc } from '/src/auth.js'
 import { createCase, getMyCases, deleteCaseByStudent } from '/src/cases.js'
 import { canUseTeacherSuggest, canAccessAdminPanel, profileBadges, approvalNotice } from '/src/roles.js'
 import { startLineLink, unlinkLine, isLinked } from '/src/line.js'
@@ -2954,6 +2954,14 @@ onAuth(async user => {
         if (_currentProfile) break
       } catch(e) { /* ignore */ }
       await new Promise(r => setTimeout(r, 500))
+    }
+    // 取得できない場合は過去の登録失敗による孤児の可能性があるため、
+    // Firestoreドキュメントの修復を試みてから再取得する。
+    if (!_currentProfile) {
+      try {
+        const { profile } = await ensureUserDoc(user)
+        if (profile) _currentProfile = profile
+      } catch(e) { console.warn('[mypage] ensureUserDoc failed', e) }
     }
     // Firestoreから取れなくてもAuthユーザー情報でフォールバック
     if (!_currentProfile) {
