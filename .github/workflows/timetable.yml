@@ -1,0 +1,90 @@
+name: Timetable sync
+
+# 時間割の自動同期（4:00〜24:00 JST、15分おき）
+#   1. シートのhtmlviewを取得 → 時間割画像を抽出
+#   2. 画像バイトのハッシュを前回分と比較（トークンは回転するためURL比較不可）
+#   3. 差分があれば public/timetable/ に上書きコミット → Pagesが自動再デプロイ
+#   4. FIREBASE_SERVICE_ACCOUNT_JSON があれば購読者へWeb Push一斉送信
+#
+# 新規連携サービスなし。PublicリポジトリなのでActions分数は無料。
+# 注意: schedule実行はデフォルトブランチ（main）にマージ後に有効になる。
+
+on:
+  schedule:
+    # 10分おき（時間帯の絞り込みなし）。
+    # 時間帯付きの複雑な指定だと定期実行が起動しない事例があったため、
+    # 切り分けとして最も単純な形式にする。Publicなので分数は無料。
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      force_notify:
+        description: "差分がなくてもPush送信をテストする"
+        required: false
+        default: false
+        type: boolean
+  # Workers Cronからの起動用（GitHubのscheduleが発火しない場合の迂回路）。
+  # Workers側の scheduled ハンドラが PAT でこのイベントを作る。
+  repository_dispatch:
+    types: [timetable-poll]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: timetable-sync
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Tokyo
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      changed: ${{ steps.sync.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/scripts/requirements.txt
+
+      - name: Install deps
+        run: pip install -r .github/scripts/requirements.txt
+
+      - name: Sync timetable
+        id: sync
+        run: python .github/scripts/timetable_sync.py
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FORCE_NOTIFY: ${{ inputs.force_notify }}
+
+      - name: Commit on change
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          TIMETABLE_PUSH_TOKEN: ${{ secrets.TIMETABLE_PUSH_TOKEN }}
+        run: |
+          git config user.name "timetable-bot"
+          git config user.email "timetable-bot@users.noreply.github.com"
+          git add public/timetable
+          git commit -m "時間割を更新 ($(date '+%Y-%m-%d %H:%M'))"
+          # 手動dispatchの重なり等で先に進んでいた場合に備えて取り込んでからpush
+          git pull --rebase
+          # mainは保護branchのためGITHUB_TOKENではpushできない（GH006）。
+          # branch保護のバイパス許可を持つ所有者のPAT（TIMETABLE_PUSH_TOKEN）でpushする。
+          if [ -z "$TIMETABLE_PUSH_TOKEN" ]; then
+            echo "::error::TIMETABLE_PUSH_TOKEN が未設定のためpushできません" >&2
+            exit 1
+          fi
+          # actions/checkout が仕込む GITHUB_TOKEN の extraheader が残っていると、
+          # URL埋め込みのPATより優先されて別主体扱いになりGH006拒否されるため先に消す
+          git config --local --unset-all 'http.https://github.com/.extraheader' || true
+          git push "https://x-access-token:${TIMETABLE_PUSH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:main
+
+  # PATでのpushは所有者主体のためpushトリガーのdeploy.ymlが起動する。
+  # 以前はGITHUB_TOKENのpushがdeploy.ymlを起動しない仕様だったため内蔵deployジョブを
+  # 持っていたが、PAT化した現在は二重デプロイの競合（in progress deployment）の原因に
+  # なるため廃止し、deploy.ymlに一本化する。

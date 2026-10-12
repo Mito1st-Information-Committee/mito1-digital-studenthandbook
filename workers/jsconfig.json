@@ -1,0 +1,25 @@
+{
+  // ---------------------------------------------------------------
+  // エディタ（VS Code 等）が workers/index.js を
+  // 「Cloudflare Workers のコード」として型チェックするための設定。
+  //
+  // これが無いと、エディタは Node.js や DOM の型で解釈してしまい、
+  // crypto.subtle.* などに実際には正しいコードでも赤線が出ます。
+  //
+  // 型定義は devDependencies に入れてあるので `npm install` だけで効きます。
+  // エディタを開かずにコマンドラインで確認することもできます:
+  //   npm run typecheck
+  // ---------------------------------------------------------------
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "lib": ["esnext"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["index.js"],
+  "exclude": ["test"]
+}

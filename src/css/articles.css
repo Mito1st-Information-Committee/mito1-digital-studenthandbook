@@ -1,0 +1,173 @@
+/* articles.css — index.html の <style> から純粋移動（見た目変更なし）。
+   カスケード順は index.html の <link> 記述順に依存するため、link の順序を変えないこと。 */
+/* ===========================
+   CONTENT CARDS
+=========================== */
+.card{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:26px 30px;margin-bottom:18px}
+.card-h2{
+  font-family:'Noto Serif JP',serif;font-size:16px;font-weight:600;
+  color:var(--text);margin-bottom:16px;padding-bottom:10px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:8px;
+}
+.card-h2::before{content:'';width:3px;height:16px;background:var(--enjii);border-radius:2px;flex-shrink:0}
+.card-body{font-size:14px;color:var(--text-2);line-height:2.0}
+.card-body p{margin-bottom:14px}
+.card-body p:last-child{margin-bottom:0}
+
+/* ===========================
+   HISTORY (沿革)
+=========================== */
+.history-list{list-style:none}
+.history-item{
+  display:flex;gap:16px;padding:6px 0;
+  border-bottom:1px solid var(--border-2);font-size:13.5px;
+}
+.history-item:last-child{border-bottom:none}
+.history-year{
+  min-width:140px;flex-shrink:0;
+  color:var(--text-3);font-size:12.5px;
+  font-family:'Noto Sans JP',sans-serif;
+  padding-top:1px;letter-spacing:.01em;
+}
+.history-item:first-child .history-year{color:var(--enjii);font-weight:600}
+.history-event{color:var(--text-2);line-height:1.7}
+
+/* ===========================
+   PRINCIPALS (歴代校長)
+=========================== */
+.principals-list{list-style:none}
+.principal-item{
+  display:grid;
+  grid-template-columns:40px 1fr 1fr;
+  gap:8px;padding:8px 0;
+  border-bottom:1px solid var(--border-2);font-size:13.5px;
+  align-items:baseline;
+}
+.principal-item:last-child{border-bottom:none}
+.principal-gen{
+  font-size:11px;color:var(--enjii);font-weight:700;
+  background:var(--enjii-bg);padding:1px 6px;border-radius:4px;
+  text-align:center;white-space:nowrap;align-self:center;
+}
+.principal-name{font-weight:500;color:var(--text)}
+.principal-term{font-size:12px;color:var(--text-3)}
+
+/* ===========================
+   RULES (条文形式)
+=========================== */
+.rules-wrap{display:grid;grid-template-columns:210px 1fr;gap:22px;align-items:start}
+.rules-toc{
+  position:sticky;top:calc(var(--header-h) + 14px);
+  background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r);overflow:hidden;
+  max-height:calc(100vh - var(--header-h) - 40px);
+  max-height:calc(100dvh - var(--header-h) - 40px);
+  overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;
+}
+.toc-hdr{
+  padding:11px 14px;background:var(--surface2);
+  font-size:11px;font-weight:600;color:var(--text-3);
+  letter-spacing:.08em;border-bottom:1px solid var(--border);
+}
+.toc-lnk{
+  display:block;padding:8px 14px;font-size:12px;color:var(--text-2);
+  cursor:pointer;transition:background .12s;
+  border-left:3px solid transparent;line-height:1.4;
+}
+.toc-lnk:hover{background:var(--surface2);color:var(--text)}
+.toc-lnk.on{background:var(--navy-dim);color:var(--navy);border-left-color:var(--enjii);font-weight:500}
+[data-theme="dark"] .toc-lnk.on{color:var(--text)}
+.toc-lnk.sub{padding-left:22px;font-size:11.5px;color:var(--text-3)}
+
+.article{
+  background:var(--surface);border:1.5px solid var(--border);
+  border-radius:var(--r);margin-bottom:10px;overflow:hidden;
+  transition:box-shadow .15s;
+  scroll-margin-top:calc(var(--header-h) + 16px);
+}
+.article:hover{box-shadow:var(--shadow-sm)}
+.art-hdr{display:flex;align-items:baseline;gap:10px;padding:14px 18px 10px}
+.art-num{
+  font-size:10.5px;font-weight:700;color:var(--enjii);
+  background:var(--enjii-bg);padding:2px 8px;border-radius:4px;
+  white-space:nowrap;letter-spacing:.05em;flex-shrink:0;
+}
+.art-title{font-size:14px;font-weight:600;color:var(--text)}
+.art-body{padding:0 18px 15px;font-size:13.5px;color:var(--text-2);line-height:1.9}
+.art-main{margin-bottom:10px}
+.items-list{list-style:none;padding:0;margin-top:8px}
+.item-row{display:flex;gap:11px;padding:4px 0;font-size:13px;color:var(--text-2);align-items:flex-start}
+.item-idx{min-width:22px;font-weight:600;color:var(--navy);flex-shrink:0;font-size:12.5px;padding-top:2px}
+[data-theme="dark"] .item-idx{color:#8fb4ff}
+.sub-list{list-style:none;margin-top:5px;padding-left:14px}
+.sub-row{display:flex;gap:9px;padding:3px 0;font-size:12.5px;color:var(--text-3);align-items:flex-start}
+.sub-idx{min-width:18px;color:var(--enjii);font-size:12px;flex-shrink:0;padding-top:2px}
+
+.chapter-div{
+  font-family:'Noto Serif JP',serif;font-size:14px;font-weight:600;
+  color:var(--navy);padding:11px 16px;
+  background:rgba(26,39,68,.05);border-left:4px solid var(--navy);
+  border-radius:0 7px 7px 0;margin-bottom:12px;margin-top:22px;
+}
+[data-theme="dark"] .chapter-div{color:var(--text);background:rgba(255,255,255,.05)}
+
+/* ===========================
+   EVENTS
+=========================== */
+.events-list{display:flex;flex-direction:column;gap:10px}
+.ev-month{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);overflow:hidden}
+.ev-month-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 18px;background:var(--navy);color:white;
+}
+.ev-month-name{font-family:'Noto Serif JP',serif;font-size:14px;font-weight:600}
+.ev-month-num{font-size:26px;font-weight:700;opacity:.17;font-family:'Noto Serif JP',serif;line-height:1}
+.ev-items{padding:8px 18px 10px}
+.ev-item{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--border-2);font-size:13.5px}
+.ev-item:last-child{border-bottom:none;padding-bottom:2px}
+.ev-bullet{width:5px;height:5px;border-radius:50%;background:var(--enjii);flex-shrink:0;margin-top:8px}
+.ev-name{color:var(--text-2);line-height:1.6}
+
+/* ===========================
+   SONGS
+=========================== */
+.song-card{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:18px}
+.song-hdr{padding:14px 22px;background:var(--navy);color:white;display:flex;justify-content:space-between;align-items:center}
+.song-hdr-ttl{font-family:'Noto Serif JP',serif;font-size:16px;font-weight:600}
+.song-hdr-badge{font-size:10.5px;background:rgba(255,255,255,.14);padding:3px 10px;border-radius:12px}
+.song-verses{padding:22px 28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:22px}
+.song-audio{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:14px 22px;background:var(--surface2);
+  border-bottom:1px solid var(--border);
+}
+.song-audio-lbl{
+  display:inline-flex;align-items:center;gap:8px;flex-shrink:0;
+  font-size:12.5px;font-weight:600;color:var(--text);
+}
+.song-audio-ico{
+  width:28px;height:28px;border-radius:50%;
+  background:var(--navy);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.song-audio-ico svg{width:15px;height:15px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.song-player{flex:1 1 220px;min-width:200px;max-width:100%;height:36px;accent-color:var(--enjii)}
+.verse-num{font-size:10.5px;color:var(--enjii);font-weight:700;margin-bottom:5px;letter-spacing:.1em}
+.verse-text{font-family:'Noto Serif JP',serif;font-size:13.5px;color:var(--text-2);line-height:2.4}
+
+/* ===========================
+   CURRICULUM
+=========================== */
+.year-tabs{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
+.year-tab{
+  padding:7px 16px;border-radius:7px;font-size:12.5px;
+  border:1.5px solid var(--border);background:var(--surface2);
+  color:var(--text-2);cursor:pointer;transition:all .15s;
+}
+.year-tab.on{background:var(--navy);color:white;border-color:var(--navy)}
+.table-outer{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{background:var(--surface2);padding:9px 13px;text-align:left;font-size:11.5px;font-weight:600;color:var(--text-3);border-bottom:2px solid var(--border);white-space:nowrap;letter-spacing:.04em}
+td{padding:9px 13px;border-bottom:1px solid var(--border-2);color:var(--text-2)}
+tr:hover td{background:var(--surface2)}
+tr:last-child td{border-bottom:none}

@@ -1,0 +1,52 @@
+name: 機能要望
+description: 新機能・改善の提案はこちら（公欠申請・通知等）
+title: "[Feat] "
+labels: ["enhancement", "needs-spec"]
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: 課題・背景
+      description: 誰が何に困っているか
+      placeholder: 例）生徒が申請後、誰に申請したか分からない
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案内容
+      description: どうなってほしいか具体的に
+      placeholder: 例）マイページの申請カードに承認者名を表示する
+    validations:
+      required: true
+  - type: textarea
+    id: accept
+    attributes:
+      label: 受け入れ条件
+      description: 完了とみなす条件をチェックリストで
+      placeholder: |
+        - [ ] マイページに承認者名が表示される
+        - [ ] 未登録時はメールアドレス表示にフォールバックする
+    validations:
+      required: false
+  - type: input
+    id: related
+    attributes:
+      label: 関連Issue
+      description: Epicや重複候補があれば
+      placeholder: 例）#30, #38 と連携
+    validations:
+      required: false
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone候補
+      options:
+        - 未定
+        - 1. 緊急バグ修正（認証・メール・PWA）
+        - 2. 公欠申請UX改善
+        - 3. 通知基盤
+        - 4. 手帳コンテンツ修正
+      default: 0
+    validations:
+      required: false

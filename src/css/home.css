@@ -1,0 +1,122 @@
+/* home.css — index.html の <style> から純粋移動（見た目変更なし）。
+   カスケード順は index.html の <link> 記述順に依存するため、link の順序を変えないこと。 */
+/* ===========================
+   HOME PAGE
+=========================== */
+.home-wrap{max-width:900px;margin:0 auto;padding:80px 0 20px}
+
+.home-brand{text-align:center;margin-bottom:44px}
+.home-book{
+  width:100px;height:144px;margin:0 auto 22px;
+  background:linear-gradient(148deg,#1e3a6e 0%,#1a2744 48%,#0c1628 100%);
+  border-radius:2px 9px 9px 2px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:8px;padding:14px 12px;
+  box-shadow:-2px 0 0 rgba(0,0,0,.3),var(--shadow-lg);
+  border-left:3px solid rgba(0,0,0,.3);
+  animation:homeFloat 5s ease-in-out infinite;position:relative;overflow:hidden;
+}
+.home-book::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.04) 0%,transparent 55%)}
+@keyframes homeFloat{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-6px) rotate(-.5deg)}}
+.hb-crest{
+  width:38px;height:38px;border-radius:50%;
+  object-fit:contain;
+  position:relative;z-index:2;
+}
+.hb-ttl{
+  font-family:'Noto Serif JP',serif;font-size:9.5px;font-weight:600;
+  color:rgba(255,255,255,.95);letter-spacing:.2em;text-align:center;
+  position:relative;z-index:1;
+}
+.hb-div{width:50%;height:1px;background:rgba(255,255,255,.2);position:relative;z-index:1}
+.hb-school{font-size:6.5px;color:rgba(255,255,255,.7);text-align:center;line-height:1.9;position:relative;z-index:1}
+.home-headline{font-family:'Noto Serif JP',serif;font-size:20px;font-weight:600;color:var(--text);margin-bottom:3px}
+.home-sub{font-size:12px;color:var(--text-3);letter-spacing:.06em}
+
+/* Category grid — auto-placement + span (named areas は重なり事故の温床になるため廃止) */
+.cat-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:13px;
+}
+/* 時間割カードは専用クラスで独立（events との grid-area 重複が食い込みの原因だった）削除 */
+.cat-card-curriculum{grid-column:span 2}
+.cat-card-about{grid-column:1/-1}
+
+.cat-card{
+  position:relative;border-radius:12px;overflow:hidden;
+  cursor:pointer;
+  min-height:130px;
+  transition:transform .2s,box-shadow .2s;
+  box-shadow:var(--shadow-sm);
+}
+.cat-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-md)}
+.cat-card:active{transform:translateY(-1px)}
+
+/* Card backgrounds */
+.cat-card-rules     {background:linear-gradient(135deg,#1a2744 0%,#1e3568 100%)}
+.cat-card-events    {background:linear-gradient(135deg,#1e3568 0%,#2a4a82 100%)}
+.cat-card-curriculum{background:linear-gradient(135deg,#0f1e3a 0%,#1a2f5a 100%)}
+.cat-card-council   {background:linear-gradient(135deg,#6b1222 0%,#8b1a2c 100%)}
+.cat-card-about     {background:linear-gradient(135deg,#1a2744 0%,#2d3d5e 100%)}
+.cat-card-songs     {background:linear-gradient(135deg,#2a1a44 0%,#3a2060 100%)}
+
+/* Decorative circles */
+.cat-card::before{
+  content:'';position:absolute;right:-20px;bottom:-20px;
+  width:100px;height:100px;border-radius:50%;
+  background:rgba(255,255,255,.05);pointer-events:none;
+}
+.cat-card::after{
+  content:'';position:absolute;right:20px;top:-30px;
+  width:70px;height:70px;border-radius:50%;
+  background:rgba(255,255,255,.04);pointer-events:none;
+}
+.cat-card-council::before{background:rgba(255,255,255,.07)}
+
+.cat-card-inner{
+  position:relative;z-index:1;
+  width:100%;height:100%;
+  padding:18px 18px 16px;
+  display:flex;flex-direction:column;
+  justify-content:space-between;
+  min-height:inherit;
+  box-sizing:border-box;
+}
+
+/* curric & about: 横レイアウト (デスクトップ) */
+.cat-card-curriculum .cat-card-inner,
+.cat-card-about .cat-card-inner {
+  flex-direction:row;align-items:center;gap:20px;min-height:110px;
+}
+.cat-card-curriculum .cat-text,
+.cat-card-about .cat-text { flex:1;min-width:0; }
+.cat-card-curriculum .cat-card-line,
+.cat-card-about .cat-card-line {
+  margin-bottom:0;align-self:flex-start;margin-top:4px;flex-shrink:0;
+}
+
+.cat-card-line{
+  width:28px;height:2px;background:rgba(255,255,255,.4);border-radius:1px;
+  margin-bottom:8px;flex-shrink:0;
+}
+.cat-card-title{
+  font-family:'Noto Serif JP',serif;font-size:15px;font-weight:600;
+  color:white;line-height:1.5;
+  word-break:keep-all;overflow-wrap:break-word;
+}
+.cat-card-sub{
+  font-size:10.5px;color:rgba(255,255,255,.6);margin-top:4px;letter-spacing:.04em;
+  line-height:1.5;
+}
+.cat-card-arrow{
+  display:flex;align-items:center;font-size:10px;
+  color:rgba(255,255,255,.5);gap:4px;margin-top:auto;flex-shrink:0;
+}
+.cat-card-curriculum .cat-card-arrow,
+.cat-card-about .cat-card-arrow { margin-top:10px; }
+.cat-card-arrow svg{
+  width:12px;height:12px;stroke:rgba(255,255,255,.5);
+  fill:none;stroke-width:2;transition:transform .18s;flex-shrink:0;
+}
+.cat-card:hover .cat-card-arrow svg{transform:translateX(3px)}

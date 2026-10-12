@@ -24,22 +24,59 @@ name = "mito1-hundbook"
 main = "index.js"
 compatibility_date = "2025-09-01"
 
+# 時間割ポーリングの迂回路：10分おきに scheduled ハンドラを起動し、
+# GitHubへrepository_dispatchを送る（GitHubのschedule不発時の対策）。
+[triggers]
+crons = ["*/10 * * * *"]
+
+# =====================================================================
+# ★★★ 重要: [vars] はデプロイのたびに「丸ごと置き換え」られます ★★★
+#
+# wrangler deploy は、このファイルの [vars] に書かれている内容で
+# Worker の環境変数を *全置換* します。
+# そのため、Cloudflare のダッシュボードで手で足した変数
+# （例: RESEND_FROM）は、次に workers/ を更新して自動デプロイが走った瞬間に
+# 消えます。これが「今まで送れていたメールが急に送れなくなった」の原因です。
+#   → 平文の環境変数は必ずこのファイルに書いてコミットしてください。
+#   → 秘密情報（APIキー等）は [vars] ではなく `wrangler secret put` を使うこと。
+#      secret はデプロイで消えません。
+# =====================================================================
 [vars]
 APP_BASE_URL = "https://mito1-tetyo.tech"
+
+# メール送信元。Resend でドメイン認証済みのアドレスであること。
+# ここが未設定だと onboarding@resend.dev で送信され、
+# Resend アカウント所有者以外には届きません（= 顧問の先生に届かない）。
+# 設定状況は GET /mail/diag で確認できます。
+RESEND_FROM = "mito1-handbook <noreply@mito1-tetyo.tech>"
+
+# Web Push (PWA通知) の連絡先。
+VAPID_SUBJECT = "mailto:noreply@mito1-tetyo.tech"
 
 # 使用する Gemini モデル。カンマ区切りで優先順に複数指定できる。
 # 空にすると workers/index.js 内の候補リストが上から順に自動で試される。
 # このキーで使えるモデルは GET /ai/diag で確認できる。
 GEMINI_MODEL = "gemini-3.5-flash-lite,gemini-3.5-flash,gemini-3.6-flash"
 
-# Firestore REST API 用（公開情報なので vars で問題ない）
-# FIREBASE_PROJECT_ID = "..."
-# FIREBASE_API_KEY    = "..."
-# RESEND_FROM         = "mito1-handbook <noreply@mito1-tetyo.tech>"
+# Firestore REST API 用（公開情報なので vars で問題ない）。
+# 未設定だとメールのワンクリック承認リンク（/resolve-token）が
+# "FIREBASE_PROJECT_ID not set" で 500 になります。
+# 値は public/firebase-config.js の projectId と必ず一致させること。
+FIREBASE_PROJECT_ID = "timer-c0ed3"
 
-# Web Push (PWA通知) 用。公開鍵はフロント src/push.js の定数と一致させる。
-# 秘密鍵はコミット禁止。登録コマンド:
-#   npx wrangler secret put VAPID_PRIVATE_KEY --config workers/wrangler.toml
-#   npx wrangler secret put VAPID_PUBLIC_KEY  --config workers/wrangler.toml
-# [vars]
-# VAPID_SUBJECT = "mailto:noreply@mito1-tetyo.tech"
+# -----------------------------------------------------------------
+# 秘密情報はここには書かないこと（[vars] は平文でリポジトリに残るため）。
+# 以下は `wrangler secret put` で登録する。secret はデプロイで消えません。
+#   GEMINI_API_KEY / RESEND_API_KEY
+#   LINE_client_id / LINE_client_secret
+#   LINE_Channel_ID / LINE_Channel_secret / LINE_CHANNEL_ACCESS_TOKEN
+#   VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY
+#     ※VAPID公開鍵はフロント src/push.js の定数と一致させること。
+#   FIREBASE_SERVICE_ACCOUNT_JSON
+#     ※Firestore REST を認証付きで呼ぶために必要（#31）。
+#       LINE Webhook の「>申請状況」や /resolve-token が
+#       users/cases のリスト・参照に失敗しないためのサービスアカウントJSON。
+#       GitHub Actions（.github/scripts/timetable_sync.py）で使っている
+#       FIREBASE_SERVICE_ACCOUNT_JSON と同じ鍵でよい。
+#       未設定の場合は認証なし（firestore.rules に許容される範囲のみ）で動作する。
+# -----------------------------------------------------------------

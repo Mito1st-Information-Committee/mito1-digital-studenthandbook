@@ -8,25 +8,33 @@
  *   通知を LINE に送れるようにするための「連携」機能です。
  *   したがって未ログイン状態では利用できません（マイページ限定）。
  *
- * ■ フロー
- *   1. マイページの連携バナーをクリック
- *      → state を生成して sessionStorage に保存
- *      → Workers の /line/authorize に遷移（client_id は Workers のシークレット）
- *   2. Workers が https://access.line.me/oauth2/v2.1/authorize へ 302 リダイレクト
- *      （bot_prompt=normal / scope=profile%20openid）
- *   3. ユーザーが認可 → LINE Login チャネルのコールバックURLへ code & state 付きで戻る
- *      コールバックURL: {APP_BASE}/line-callback.html
- *   4. line-callback.html が state を検証し、Workers の /line/exchange に code を渡す
- *   5. Workers が code → アクセストークン → LINE プロフィール取得API
- *      （GET https://api.line.me/v2/profile）を叩いて userId を取得して返す
- *   6. クライアントが Firestore の users/{uid} に lineUserId 等を書き込み完了表示
+ * ■ フロー（PWA/別タブ分断対応版）
+ *   OAuth の「同じタブ・同じログイン状態に戻ってくる」前提を捨て、
+ *   Firestore の lineLinkSessions/{state} を中継する「セッション＋ポーリング」方式。
+ *   コールバック側はどのブラウザ・タブ・アプリで開かれてもよい。
+ *
+ *   1. マイページの連携バナーをクリック（ログイン済み）
+ *      → state を生成し、lineLinkSessions/{state} に
+ *        { uid, status:'pending', createdAt } を作成（beginLineLink）
+ *      → 認可URLを新しいタブ/ウィンドウで開く（元のタブ/PWAは残る）
+ *      → 元のタブは watchLineSession でセッションを監視（onSnapshot）
+ *   2. LINEの認可画面 → コールバック（line-callback.html）がどこで開かれても可
+ *      （ログイン不要・sessionStorage不要）
+ *      → code を Workers /line/exchange に渡して LINE userId を取得
+ *      → lineLinkSessions/{state} を status:'done' + プロフィールに更新
+ *   3. 元のタブ/PWA が done を検知（completeLineLink）
+ *      → 自分（認証済み）の権限で users/{uid} に lineUserId 等を保存
+ *      → セッションを status:'consumed' にして使い捨てを確定
  *
  * ■ LINE Developers Console に登録すべきコールバックURL
  *   https://mito1-tetyo.tech/line-callback.html
  *   （ローカル開発時は http://localhost:5173/line-callback.html も追加）
  */
 import { db } from './firebase.js'
-import { doc, updateDoc, getDoc, getDocs, collection, query, where, deleteField, serverTimestamp } from 'firebase/firestore'
+import {
+  doc, updateDoc, getDoc, getDocs, collection, query, where,
+  deleteField, deleteDoc, serverTimestamp, setDoc, onSnapshot,
+} from 'firebase/firestore'
 
 // Workers のベースURL（cases.js と同じデプロイ先）
 export const WORKERS_URL = 'https://mito1-hundbook.asanuma-ryuto.workers.dev'
@@ -34,11 +42,8 @@ export const WORKERS_URL = 'https://mito1-hundbook.asanuma-ryuto.workers.dev'
 // LINE Login のコールバックURL（LINE Developers Console に登録する値と完全一致させる）
 export const LINE_CALLBACK_PATH = '/line-callback.html'
 
-const STATE_KEY    = 'mito1_line_state'
-const RETURN_KEY   = 'mito1_line_return'
-
 // =============================================
-// state（CSRF対策）
+// state（CSRF対策 / セッションdoc の ID）
 // =============================================
 function genState() {
   const arr = new Uint8Array(24)
@@ -54,41 +59,104 @@ export function callbackUrl() {
 // 連携開始（バナークリック時）
 // =============================================
 /**
- * LINE の認可画面へ遷移する。
- * client_id は Workers のシークレット（LINE_client_id）にあるため、
- * 認可URLの組み立ては Workers 側で行い、こちらは /line/authorize へ飛ばすだけ。
- * @param {string} returnTo 連携完了後に戻したいページ（例: '/#mypage'）
+ * セッションdoc（lineLinkSessions/{state}）を作成し、LINE 認可URLを返す。
+ * ここでは画面遷移しない。呼び出し側で認可URLを新しいタブ/ウィンドウで開き、
+ * 元の画面は watchLineSession() でセッションを監視する。
+ * @param {string} uid ログイン中のユーザーUID
+ * @returns {Promise<{state:string, authorizeUrl:string}>}
  */
-export function startLineLink(returnTo = '/') {
+export async function beginLineLink(uid) {
   const state = genState()
-  try {
-    sessionStorage.setItem(STATE_KEY, state)
-    sessionStorage.setItem(RETURN_KEY, returnTo)
-  } catch { /* プライベートブラウジング等で失敗しても続行 */ }
-
+  await setDoc(doc(db, 'lineLinkSessions', state), {
+    uid,
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  })
   const params = new URLSearchParams({
     state,
     redirect_uri: callbackUrl(),
   })
-  window.location.href = `${WORKERS_URL}/line/authorize?${params.toString()}`
+  return {
+    state,
+    authorizeUrl: `${WORKERS_URL}/line/authorize?${params.toString()}`,
+  }
 }
 
-export function consumeStoredState() {
-  let state = null
-  try {
-    state = sessionStorage.getItem(STATE_KEY)
-    sessionStorage.removeItem(STATE_KEY)
-  } catch { /* noop */ }
-  return state
+/**
+ * セッションを監視する。コールバック側が done を書き込むと onDone が呼ばれる。
+ * @param {string} state beginLineLink が返した state
+ * @param {{onDone:Function, onError?:Function}} handlers
+ * @returns {() => void} 監視解除関数（unsubscribe）
+ */
+export function watchLineSession(state, { onDone, onError }) {
+  return onSnapshot(doc(db, 'lineLinkSessions', state), snap => {
+    const d = snap.data()
+    if (!d) return
+    if (d.status === 'done' && onDone) onDone(d)
+  }, err => {
+    if (onError) onError(err)
+  })
 }
 
-export function consumeReturnTo() {
-  let ret = null
+/**
+ * 連携を確定する（元のタブ/PWA側・認証済みで実行）。
+ * users/{uid} に保存し、セッションを使い捨て（consumed）にする。
+ * @param {string} uid ログイン中のユーザーUID
+ * @param {string} state セッションのstate
+ * @param {{lineUserId:string, displayName?:string, pictureUrl?:string}} sessionData
+ */
+export async function completeLineLink(uid, state, sessionData) {
+  await saveLineLink(uid, {
+    userId:      sessionData.lineUserId,
+    displayName: sessionData.displayName || '',
+    pictureUrl:  sessionData.pictureUrl  || '',
+  })
   try {
-    ret = sessionStorage.getItem(RETURN_KEY)
-    sessionStorage.removeItem(RETURN_KEY)
-  } catch { /* noop */ }
-  return ret || '/'
+    await updateDoc(doc(db, 'lineLinkSessions', state), {
+      status: 'consumed',
+    })
+  } catch (e) {
+    console.warn('[line] failed to consume session:', e)
+  }
+}
+
+/**
+ * 連携を中断する（キャンセル/タイムアウト時）。
+ * @param {string} state セッションのstate
+ */
+export async function cancelLineSession(state) {
+  if (!state) return
+  try {
+    await updateDoc(doc(db, 'lineLinkSessions', state), { status: 'cancelled' })
+  } catch (e) {
+    console.warn('[line] failed to cancel session:', e)
+  }
+}
+
+/**
+ * 放置された古いセッション（pending/done のまま一定時間経過）を削除する。
+ * タブを閉じるなどでキャンセル処理が走らなかった場合の掃除用。
+ * @param {string} uid ログイン中のユーザーUID
+ * @param {number} maxAgeMs この時間を超えたら削除（既定30分）
+ */
+export async function cleanupLineSessions(uid, maxAgeMs = 30 * 60 * 1000) {
+  if (!uid) return
+  try {
+    const q = query(collection(db, 'lineLinkSessions'), where('uid', '==', uid))
+    const snap = await getDocs(q)
+    const now = Date.now()
+    const dels = snap.docs
+      .filter(d => {
+        const data = d.data()
+        if (data.status === 'consumed') return false
+        const t = data.createdAt?.toMillis?.()
+        return !!t && (now - t) > maxAgeMs
+      })
+      .map(d => deleteDoc(d.ref))
+    await Promise.all(dels)
+  } catch (e) {
+    console.warn('[line] cleanupLineSessions failed:', e)
+  }
 }
 
 // =============================================

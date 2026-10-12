@@ -56,6 +56,20 @@ async function loadPrincipals() {
   const items = await fetchOrdered('principals')
   if (!items.length) return
 
+  items
+    .sort((a, b) => {
+      const toNumber = (value) => {
+        const s = String(value ?? "")
+          .trim()
+          .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+        if (s.startsWith("初")) return 1;
+        const m = s.match(/\d+/);
+        return m ? Number.parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER;
+      };
+
+      return toNumber(a.gen) - toNumber(b.gen)
+    })
+
   const el = document.getElementById('principalsListFront')
   if (!el) return
 
@@ -91,8 +105,32 @@ async function loadGoals() {
 }
 
 // =============================================
-// 歌詞
+// 歌詞（Issue #87: 音声URLが設定されていれば試聴プレイヤーを表示）
+// audioUrl が無い旧データでも従来どおり歌詞のみ表示（後方互換）
 // =============================================
+function escAttrSong(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/**
+ * 音声URLとして利用できるのは絶対URLの http(s) のみ。
+ * javascript:/data: 等は再生しない。相対パスも対象外（管理画面の保存時
+ * バリデーション `^https?://` と一致させるため）。
+ */
+function isSafeSongAudioUrl(u) {
+  if (typeof u !== 'string') return false
+  const t = u.trim()
+  if (!/^https?:\/\/.+/i.test(t)) return false
+  try {
+    const parsed = new URL(t)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 async function loadSongs() {
   const items = await fetchOrdered('songs')
   if (!items.length) return
@@ -100,15 +138,29 @@ async function loadSongs() {
   const el = document.getElementById('songsListFront')
   if (!el) return
 
-  el.innerHTML = items.map(item => `
+  el.innerHTML = items.map(item => {
+    const rawAudio = typeof item.audioUrl === 'string' ? item.audioUrl.trim() : ''
+    const audioUrl = isSafeSongAudioUrl(rawAudio) ? rawAudio : ''
+    const ttl = item.title || item.type || '歌詞'
+    return `
     <div class="song-card">
       <div class="song-hdr">
-        <div class="song-hdr-ttl">${item.title || item.type || ''}</div>
+        <div class="song-hdr-ttl">${ttl}</div>
         <div class="song-hdr-badge">
           ${[item.lyricist && `作詞：${item.lyricist}`, item.composer && `作曲：${item.composer}`]
             .filter(Boolean).join('　／　')}
         </div>
       </div>
+      ${audioUrl ? `
+      <div class="song-audio">
+        <div class="song-audio-lbl">
+          <span class="song-audio-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          </span>
+          試聴する
+        </div>
+        <audio class="song-player" controls preload="none" src="${escAttrSong(audioUrl)}" aria-label="${escAttrSong(ttl)}の音声"></audio>
+      </div>` : ''}
       <div class="song-verses">
         ${(item.verses || []).map((v, i) => `
           <div>
@@ -118,7 +170,15 @@ async function loadSongs() {
         `).join('')}
       </div>
     </div>
-  `).join('')
+    `
+  }).join('')
+
+  // 複数の曲を同時再生しない（1つ再生したら他を止める）
+  el.querySelectorAll('audio.song-player').forEach(a => {
+    a.addEventListener('play', () => {
+      el.querySelectorAll('audio.song-player').forEach(o => { if (o !== a) o.pause() })
+    })
+  })
 }
 
 // =============================================
@@ -598,6 +658,7 @@ export async function loadAllData() {
     loadSongs(),
     loadEvents(),
     loadCurriculum(),
+    loadTimetable(),
     loadCouncilActivities(),
     loadArticles('rules',           'rulesContentFront',   'rulesTocFront'),
     loadArticles('special',         'specialContentFront', 'specialTocFront'),
@@ -712,6 +773,220 @@ function buildAIContext() {
   }
 
   window._aiContext = lines.join('\n')
+    // トークン節約: 行末空白の除去・3連以上の改行を2つに圧縮（内容は不変）
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+// =============================================
+// 時間割（Actionsが5分おきに同期する静的ファイル）
+// public/timetable/manifest.json + slot-*
+//   loadTimetable: マニフェスト取得＋文言＋NEWバッジ（軽量・無条件）
+//   renderTimetableImages: 画像バイトの取得・描画はβ通過時とページ表示時のみ。
+//     β対象外のユーザーに画像を取得させないための分離。
+//
+// PWAのService WorkerがGETをネットワーク優先→失敗時キャッシュで扱うため、
+// 通常は古い画像が出続けることはない。ただし前日14時ごろの更新直後に
+// 端末側の一時的なキャッシュ/オフラインで古い表示が残るケースに備え、
+// manifest.json は常に cache:'no-store' で取得し、更新ボタン・通知経由の
+// 遷移時は window._timetableManifest のキャッシュを使わず強制再取得する。
+// =============================================
+// フローティングウィジェット用の短い更新日時「D日 H時更新」
+function shortTimetableLabel(updatedAt) {
+  if (!updatedAt) return ''
+  const m = String(updatedAt).match(/^\d{4}-\d{2}-(\d{2})T(\d{2}):\d{2}/)
+  if (!m) return ''
+  const day = Number(m[1])
+  const hour = Number(m[2])
+  return `${day}日 ${hour}時更新`
+}
+
+async function loadTimetable(force) {
+  let manifest = null
+  try {
+    const res = await fetch(`timetable/manifest.json?_=${Date.now()}`, { cache: 'no-store' })
+    if (res.ok) manifest = await res.json()
+  } catch {
+    // まだ初回同期前
+  }
+
+  const meta = document.getElementById('timetableMeta')
+  const widgetSub = document.getElementById('ttWidgetSub')
+
+  if (!manifest?.images?.length) {
+    if (meta) meta.textContent = '準備中'
+    if (widgetSub) widgetSub.textContent = '準備中'
+    return null
+  }
+
+  window._timetableManifest = manifest
+  window._timetableUpdatedAt = manifest.updatedAt || ''
+  if (meta) meta.textContent = manifest.updatedAtLabel || ''
+  // ウィジェットは横幅が限られるため「M月D日 H時更新」の短い表記にする
+  if (widgetSub) widgetSub.textContent = shortTimetableLabel(manifest.updatedAt) || '自動更新'
+
+  // NEWバッジ（開いたら既読になる。既読処理はnavラッパー側）
+  try {
+    const seen = localStorage.getItem('timetableSeenAt')
+    const isNew = !!manifest.updatedAt && seen !== manifest.updatedAt
+    ;['sbBadgeTimetable', 'ttWidgetBadge'].forEach(id => {
+      const badge = document.getElementById(id)
+      if (badge) {
+        badge.textContent = isNew ? 'NEW' : ''
+        badge.style.display = isNew ? '' : 'none'
+      }
+    })
+  } catch { /* ignore */ }
+  return manifest
+}
+
+/**
+ * 時間割画像の描画。
+ * force=true のときは同一updatedAtでも再取得・再描画する
+ * （更新ボタン・通知からの遷移時に古いDOMが残らないようにするため）。
+ * manifest.json は外部同期由来なので、file名はエンコードして埋め込む。
+ */
+window.renderTimetableImages = async function(force) {
+  const el = document.getElementById('timetableImagesFront')
+  if (!el) return
+  if (!window._timetableManifest || force) {
+    await loadTimetable(force)
+  }
+  const manifest = window._timetableManifest
+  if (!manifest?.images?.length) {
+    el.innerHTML = '<p style="padding:40px;text-align:center;color:var(--text-3);font-size:13px">時間割はまだ登録されていません</p>'
+    el.dataset.renderedAt = ''
+    return
+  }
+  if (!force && el.dataset.renderedAt === manifest.updatedAt) return
+  const v = encodeURIComponent(`${manifest.updatedAt || ''}-${Date.now()}`)
+  el.innerHTML = manifest.images.map((im, i) => `
+    <div style="margin-bottom:12px">
+      <img src="timetable/${encodeURIComponent(im.file)}?v=${v}" alt="時間割${i + 1}" loading="lazy"
+        style="width:100%;border-radius:var(--r);display:block"
+        onerror="this.style.display='none';document.getElementById('ttImgErr${i}').style.display=''">
+      <p id="ttImgErr${i}" style="display:none;padding:24px;text-align:center;color:var(--text-3);font-size:13px">画像を読み込めませんでした</p>
+    </div>
+  `).join('')
+  el.dataset.renderedAt = manifest.updatedAt
+}
+
+/**
+ * 過去1週間分の時間割（折りたたみ内に表示）。
+ * timetable/history.json を取得し、最新と同一updatedAtの entry は
+ * 上の最新表示と重複するため除外する。画像は <details> を開いた初回のみ
+ * 取得する（閉じている間の通信量を抑えるため）。
+ */
+function formatHistoryDate(dateStr) {
+  const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return dateStr || ''
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  const wd = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()] || ''
+  return `${Number(m[2])}月${Number(m[3])}日（${wd}）`
+}
+
+window.renderTimetableHistory = async function(force) {
+  const wrap = document.getElementById('timetableHistoryWrap')
+  const listEl = document.getElementById('timetableHistoryList')
+  const summaryEl = document.getElementById('timetableHistorySummary')
+  if (!wrap || !listEl) return
+  if (!force && listEl.dataset.rendered === '1') return
+  listEl.dataset.rendered = ''
+  listEl.innerHTML = '<p style="font-size:12px;color:var(--text-3)">読み込み中...</p>'
+  let items = []
+  try {
+    const res = await fetch(`timetable/history.json?_=${Date.now()}`, { cache: 'no-store' })
+    if (res.ok) {
+      const data = await res.json()
+      items = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : [])
+    }
+  } catch {
+    // 導入直後など history.json 未生成時は空扱い
+  }
+  // 最新表示と重複する当日分を除外（updatedAt一致 or 最新manifestと同ハッシュ集合）
+  const latestAt = window._timetableUpdatedAt || window._timetableManifest?.updatedAt || ''
+  const latestHashes = new Set((window._timetableManifest?.images || []).map(im => im.hash).filter(Boolean))
+  const past = items.filter(it => {
+    if (!it || !it.date) return false
+    if (latestAt && it.updatedAt && it.updatedAt === latestAt) return false
+    if (latestHashes.size && Array.isArray(it.images) && it.images.length) {
+      const hs = it.images.map(im => im.hash).filter(Boolean)
+      if (hs.length && hs.every(h => latestHashes.has(h)) && hs.length === latestHashes.size) return false
+    }
+    return true
+  })
+  if (summaryEl) summaryEl.textContent = past.length ? `過去1週間分の時間割を見る（${past.length}件）` : '過去1週間分の時間割を見る'
+  if (!past.length) {
+    listEl.innerHTML = '<p style="font-size:12px;color:var(--text-3)">まだ過去の時間割はありません（導入後の更新分から蓄積されます）</p>'
+    listEl.dataset.rendered = '1'
+    return
+  }
+  listEl.innerHTML = past.map(entry => {
+    // dir は history.json 由来のためセグメントごとにエンコードする
+    // （dir 全体を encodeURIComponent すると / が %2F になり404になる）
+    const dir = String(entry.dir || `history/${entry.date}`).replace(/^\/+/, '')
+      .split('/').map(s => encodeURIComponent(s)).join('/')
+    const label = entry.updatedAtLabel || formatHistoryDate(entry.date)
+    const imgs = (entry.images || []).map((im, i) => `
+      <div style="margin-top:8px">
+        <img src="timetable/${dir}/${encodeURIComponent(im.file)}" alt="過去の時間割 ${entry.date} ${i + 1}" loading="lazy"
+          style="width:100%;border-radius:var(--r);display:block"
+          onerror="this.style.display='none'">
+      </div>`).join('')
+    return `
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+        <div style="font-size:13px;font-weight:700">${formatHistoryDate(entry.date)}</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:2px">${label}</div>
+        ${imgs}
+      </div>`
+  }).join('')
+  listEl.dataset.rendered = '1'
+}
+
+function setupTimetableHistoryToggle() {
+  if (window._timetableHistorySetup) return
+  const wrap = document.getElementById('timetableHistoryWrap')
+  if (!wrap) return
+  window._timetableHistorySetup = true
+  wrap.addEventListener('toggle', () => {
+    if (wrap.open) window.renderTimetableHistory()
+  })
+}
+// DOM構築前(モジュール実行時)に存在しない場合に備え、初回描画時にもbindする
+setupTimetableHistoryToggle()
+const _origRenderTimetableImages = window.renderTimetableImages
+window.renderTimetableImages = async function(force) {
+  setupTimetableHistoryToggle()
+  if (force) {
+    const hist = document.getElementById('timetableHistoryList')
+    if (hist) hist.dataset.rendered = ''
+  }
+  const r = await _origRenderTimetableImages(force)
+  // 開いている最中の再取得なら履歴も更新する
+  const wrap = document.getElementById('timetableHistoryWrap')
+  if (force && wrap && wrap.open) await window.renderTimetableHistory(true)
+  return r
+}
+
+/**
+ * 「更新」ボタン・通知経由の遷移から呼ばれる強制再取得。
+ * PWAキャッシュ問題（Issue #85）対策: manifest.jsonをキャッシュ無視で
+ * 取り直し、画像タグのクエリ文字列も毎回変えてブラウザ内キャッシュを回避する。
+ */
+window.refreshTimetable = async function() {
+  const btn = document.getElementById('timetableRefreshBtn')
+  const meta = document.getElementById('timetableMeta')
+  if (btn) { btn.disabled = true; btn.classList.add('loading') }
+  if (meta) meta.textContent = '更新中...'
+  try {
+    await window.renderTimetableImages(true)
+    if (window._timetableUpdatedAt) {
+      try { localStorage.setItem('timetableSeenAt', window._timetableUpdatedAt) } catch { /* ignore */ }
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.classList.remove('loading') }
+  }
 }
 
 // =============================================

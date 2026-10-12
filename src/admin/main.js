@@ -5,8 +5,8 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth'
 import {
-  collection, doc, getDocs, getDoc,
-  addDoc, setDoc, updateDoc, deleteDoc,
+  collection, collectionGroup, doc, getDocs, getDoc,
+  addDoc, setDoc, updateDoc, deleteDoc, deleteField,
   orderBy, query, where, serverTimestamp, Timestamp, writeBatch,
 } from 'firebase/firestore'
 import { getCurrentProfile } from '../auth.js'
@@ -14,11 +14,12 @@ import {
   ROLE_LABELS as R_LABELS, ROLE_COLORS as R_COLORS, ROLE_BGS as R_BGS,
   canAccessAdminPanel, canViewCasesAdmin, canManageRoles, canToggleApproval,
   canEditUserInfo, canViewUsers, canReplyInquiries, canManageTargetRole,
-  canAssignRole, assignableRoles, canManageBetaTester,
+  canAssignRole, assignableRoles, canManageBetaTester, isCommitteeAdmin,
 } from '../roles.js'
 import {
   FLAG_STATUSES, FLAG_STATUS_LABELS, validateFlagKey, normalizeFlag, KNOWN_FLAGS,
 } from '../featureFlags.js'
+import { classLabel, classOptionTags, normalizeClass, isValidClassForGrade, isJuniorHighClass } from '../classOptions.js'
 
 // =============================================
 // STATE
@@ -295,6 +296,10 @@ function applyRoleUI() {
   const casesNav = document.querySelector('.adm-sb-item[data-sec="cases"]')
   if (casesNav) casesNav.style.display = canViewCasesAdmin(role) ? '' : 'none'
 
+  // 時間割APIキー：委員会管理者以上のみ（課金に直結するためモデレーター不可）
+  const apiNav = document.querySelector('.adm-sb-item[data-sec="apikeys"]')
+  if (apiNav) apiNav.style.display = isCommitteeAdmin(role) ? '' : 'none'
+
   // ユーザー管理はスタッフ全員閲覧可（編集・ロール変更は個別制御）
   const usersNav = document.querySelector('.adm-sb-item[data-sec="users"]')
   if (usersNav) usersNav.style.display = canViewUsers(role) ? '' : 'none'
@@ -370,9 +375,11 @@ async function loadSection(sec) {
     case 'council-charter':    return Promise.all([loadList('council-charter', renderArticleList('councilCharterList')), loadCharterPreambleForm()])
     case 'council-rules':      return loadList('council-rules', renderArticleList('councilRulesList'))
     case 'inquiries':          return loadInquiries()
+    case 'mail':               return loadCustomMailSection()
     case 'announcements':      return loadAnnouncements()
     case 'beta':               return loadBetaFlags()
     case 'cases':              return canViewCasesAdmin(myProfile?.role) ? loadAdminCases() : renderCasesForbidden()
+    case 'apikeys':            return isCommitteeAdmin(myProfile?.role) ? loadApiKeys() : renderApiKeysForbidden()
     case 'users':              return loadUsers()
   }
 }
@@ -703,6 +710,7 @@ function renderSongsList(items) {
   const el = $('songsList')
   if (!el) return
   if (!items.length) { el.innerHTML = emptyState('歌詞がまだ登録されていません'); return }
+  const isHttpUrl = (u) => typeof u === 'string' && /^https?:\/\/.+/i.test(u.trim())
   el.innerHTML = items.map((item, i) => `
     <div class="item-card">
       <div class="item-card-header">
@@ -710,10 +718,16 @@ function renderSongsList(items) {
         <span class="item-title">${escHtml(item.title)}</span>
         ${item.lyricist ? `<span class="item-chip">作詞 ${escHtml(item.lyricist)}</span>` : ''}
         ${item.composer ? `<span class="item-chip">作曲 ${escHtml(item.composer)}</span>` : ''}
+        ${isHttpUrl(item.audioUrl) ? `<span class="item-chip item-chip-audio">♪ 音声あり</span>` : ''}
         ${itemOps('songs', item.id, i, items.length)}
       </div>
       <div class="item-card-body">
         <div class="item-body-text">${(item.verses || []).map((v, n) => `${n + 1}番\n${escHtml(v)}`).join('\n\n')}</div>
+        ${isHttpUrl(item.audioUrl) ? `
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:11px;color:var(--text-3);word-break:break-all">音声URL: ${escHtml(item.audioUrl.trim())}</div>
+          <audio controls preload="none" src="${escHtml(item.audioUrl.trim())}" style="width:100%;max-width:420px;height:36px"></audio>
+        </div>` : ''}
       </div>
     </div>`).join('')
 }
@@ -1175,6 +1189,7 @@ MODAL_CONFIGS.songs = {
   sticky: ['f_type', 'f_lyricist', 'f_composer'],
   fields: ({ col, seed }) => {
     const s = { ...getSticky('songs'), ...(seed || {}) }
+    const audioUrl = seed?.audioUrl ?? s.audioUrl ?? s.f_audioUrl ?? ''
     return `
     <div class="form-row-2 form-row">
       <div>
@@ -1201,6 +1216,11 @@ MODAL_CONFIGS.songs = {
       </div>
     </div>
     <div class="form-row">
+      <label>音声URL（任意）</label>
+      <input type="url" id="f_audioUrl" inputmode="url" value="${escHtml(audioUrl)}" placeholder="https://.../kouka.mp3">
+      <div class="form-hint">校歌・応援歌のMP3などのURLを入れると、生徒手帳側に試聴プレイヤーが表示されます。空欄でも歌詞のみで従来どおり動作します。</div>
+    </div>
+    <div class="form-row">
       <label>一番</label>
       <textarea id="f_v1" rows="4" placeholder="歌詞を入力...">${escHtml((seed?.verses || [])[0])}</textarea>
     </div>
@@ -1219,6 +1239,7 @@ MODAL_CONFIGS.songs = {
     title:    trimVal('f_title'),
     lyricist: trimVal('f_lyricist'),
     composer: trimVal('f_composer'),
+    audioUrl: trimVal('f_audioUrl'),
     verses:   ['f_v1', 'f_v2', 'f_v3'].map(trimVal).filter(Boolean),
     order:    orderValue(col),
   }),
@@ -1227,6 +1248,7 @@ MODAL_CONFIGS.songs = {
     $('f_title').value    = data.title    || ''
     $('f_lyricist').value = data.lyricist || ''
     $('f_composer').value = data.composer || ''
+    if ($('f_audioUrl')) $('f_audioUrl').value = data.audioUrl || ''
     const v = data.verses || []
     $('f_v1').value = v[0] || ''
     $('f_v2').value = v[1] || ''
@@ -1435,6 +1457,15 @@ function validateModal(type) {
     if (!trimVal(id)) {
       showToast(`${label}を入力してください`)
       $(id)?.focus()
+      return false
+    }
+  }
+  // 校歌・応援歌: 音声URLは任意だが、入力時は http(s) のみ許可（後方互換のため空欄はOK）
+  if (type === 'songs') {
+    const u = trimVal('f_audioUrl')
+    if (u && !/^https?:\/\/.+/i.test(u)) {
+      showToast('音声URLは https:// または http:// から始まるURLを入力してください')
+      $('f_audioUrl')?.focus()
       return false
     }
   }
@@ -2037,8 +2068,18 @@ window.sendReplyEmail = async function (id, evt) {
       }),
     })
     if (!res.ok) {
-      const detail = await res.text().catch(() => '')
-      throw new Error(`送信失敗 (${res.status}): ${detail}`)
+      // Workers は { error, detail, hint } を返す。
+      // hint は「次に何をすればよいか」を日本語で書いたものなので、あれば最優先で見せる。
+      // 生の JSON をそのままトーストに出すと原因が読み取れないため。
+      const raw = await res.text().catch(() => '')
+      let message = raw
+      try {
+        const parsed = JSON.parse(raw)
+        message = parsed.hint || parsed.detail || parsed.error || raw
+      } catch {
+        // JSON でなければ本文をそのまま使う
+      }
+      throw new Error(`送信失敗 (${res.status}): ${message}`)
     }
     await updateDoc(doc(db, 'inquiries', id), { reply: ta.value, status: 'replied' })
     showToast('メールを送信しました')
@@ -2157,11 +2198,14 @@ window.deleteAdminCase = async function (caseId) {
 
 // =============================================
 // ユーザー管理（Issue #49: 属性が増えたのでテーブル+カード併用）
+// Issue #21: LINE連携解除 / Push利用状況の確認を追加
 // ロールのラベル・配色は roles.js（R_LABELS/R_COLORS/R_BGS）を共通利用
 // =============================================
 let allUsers = []
 let userFilters = { role: 'all', grade: 'all', class: 'all', status: 'all', search: '' }
 let userSort = 'role'
+// uid → 登録されているPush購読（端末）数
+let pushCountByUid = {}
 
 const ROLE_ORDER = { owner: 0, admin_teacher: 1, admin_student: 2, moderator: 3, teacher: 4, student: 5 }
 
@@ -2170,8 +2214,27 @@ async function loadUsers() {
   if (!el) return
   el.innerHTML = spinner()
   try {
-    const snap = await getDocs(collection(db, 'users'))
+    const [snap, pushSnap] = await Promise.all([
+      getDocs(collection(db, 'users')),
+      // Push利用状況: 全ユーザーの購読をcollectionGroupで1クエリに集約
+      // （firestore.rules に collectionGroup の読み取りルールが必要。未デプロイ時はフォールバック）
+      getDocs(query(collectionGroup(db, 'pushSubscriptions'))).catch(() => null),
+    ])
     allUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    pushCountByUid = {}
+    if (pushSnap) {
+      for (const d of pushSnap.docs) {
+        const uid = d.ref.parent.parent.id // users/{uid}/pushSubscriptions/{subId}
+        if (uid) pushCountByUid[uid] = (pushCountByUid[uid] || 0) + 1
+      }
+    } else {
+      // 集約失敗時（ルール未デプロイ等）はユーザーごとのフィールド値でフォールバック
+      for (const u of allUsers) {
+        if (u.pushEnabled) pushCountByUid[u.id] = Math.max(pushCountByUid[u.id] || 0, 1)
+      }
+    }
+
     updateSidebarCount('users', allUsers.length)
     renderUsers()
   } catch (e) {
@@ -2194,6 +2257,8 @@ function filteredUsers() {
     case 'beta':       list = list.filter(u => u.betaTester === true); break
     case 'line':       list = list.filter(u => !!u.lineUserId); break
     case 'noline':     list = list.filter(u => !u.lineUserId); break
+    case 'push':       list = list.filter(u => (pushCountByUid[u.id] || 0) > 0); break
+    case 'nopush':     list = list.filter(u => (pushCountByUid[u.id] || 0) === 0); break
   }
 
   if (userFilters.search) {
@@ -2234,6 +2299,7 @@ function renderUserStats() {
   const teachers   = allUsers.filter(u => u.role === 'teacher').length
   const lineLinked = allUsers.filter(u => !!u.lineUserId).length
   const betaTesters = allUsers.filter(u => u.betaTester === true).length
+  const pushUsers = allUsers.filter(u => (pushCountByUid[u.id] || 0) > 0).length
 
   el.innerHTML = `
     <button class="stat-chip clickable" type="button" data-filter-preset="all"><b>${total}</b> 全ユーザー</button>
@@ -2242,6 +2308,7 @@ function renderUserStats() {
     <button class="stat-chip clickable" type="button" data-filter-preset="teacher"><b>${teachers}</b> 先生</button>
     <button class="stat-chip clickable" type="button" data-filter-preset="staff"><b>${staff}</b> 委員会メンバー</button>
     <button class="stat-chip clickable" type="button" data-filter-preset="line"><b>${lineLinked}</b> LINE連携済み</button>
+    <button class="stat-chip clickable" type="button" data-filter-preset="push"><b>${pushUsers}</b> Push利用中</button>
     ${betaTesters ? `<button class="stat-chip clickable" type="button" data-filter-preset="beta"><b>${betaTesters}</b> βテスター</button>` : ''}`
 }
 
@@ -2255,6 +2322,7 @@ function applyUserPreset(preset) {
   else if (preset === 'unapproved') { userFilters.status = 'unapproved'; userSort = 'status' }
   else if (preset === 'beta')       { userFilters.status = 'beta' }
   else if (preset === 'line')       { userFilters.status = 'line' }
+  else if (preset === 'push')       { userFilters.status = 'push' }
   else if (preset === 'staff')      { userFilters.status = 'all' } // 下で個別処理
 
   // セレクトボックスの表示を同期
@@ -2275,11 +2343,23 @@ function roleAttrs(u) {
   // 生徒はもちろん、モデレーター・管理者（生徒）も生徒が前提のため学年・クラス・番号を持つ
   if (u.role === 'student' || u.role === 'moderator' || u.role === 'admin_student') {
     if (u.grade)  attrs.push(`${u.grade}年`)
-    if (u.class)  attrs.push(`${u.class}組`)
+    if (u.class)  attrs.push(classLabel(u.class))
     if (u.number) attrs.push(`${u.number}番`)
     if (!u.grade || !u.class) attrs.push('⚠ 未設定')
   }
   return attrs
+}
+
+/**
+ * 附属中学校バッジ（A組/B組は中学のみのため、中学生と一目で分かるように表示）。
+ * 該当しない場合は空文字を返す。
+ */
+function schoolBadge(u) {
+  if ((u.role === 'student' || u.role === 'moderator' || u.role === 'admin_student')
+    && isJuniorHighClass(u.class)) {
+    return '<span class="attr attr-jh">中学</span>'
+  }
+  return ''
 }
 
 function approvalCell(u, iCanToggleAppr) {
@@ -2293,10 +2373,20 @@ function approvalCell(u, iCanToggleAppr) {
   return `<span class="badge ${cls}">${label}</span>`
 }
 
-function lineCell(u) {
-  return u.lineUserId
-    ? `<span class="badge badge-ok" title="${escHtml(u.lineDisplayName ? 'LINE: ' + u.lineDisplayName : 'LINE連携済み')}">✓ 連携済み</span>`
-    : '<span class="badge badge-muted">未連携</span>'
+function lineCell(u, iCanUnlink) {
+  if (!u.lineUserId) return '<span class="badge badge-muted">未連携</span>'
+  const badge = `<span class="badge badge-ok" title="${escHtml(u.lineDisplayName ? 'LINE: ' + u.lineDisplayName : 'LINE連携済み')}">✓ 連携済み</span>`
+  if (!iCanUnlink) return badge
+  // 管理画面からLINE連携を解除可能（Issue #21）
+  return `<span style="display:inline-flex;align-items:center;gap:5px">${badge}
+    <button class="toggle-pill" style="color:var(--enjii);background:var(--enjii-bg)" onclick="unlinkUserLine('${u.id}')" title="LINE連携を解除する">解除</button></span>`
+}
+
+/** Push利用状況（購読中デバイス数） */
+function pushCell(u) {
+  const n = pushCountByUid[u.id] || 0
+  if (n <= 0) return '<span class="badge badge-muted">未利用</span>'
+  return `<span class="badge badge-ok" title="${n}台の端末でプッシュ通知を利用中">✓ ${n}台</span>`
 }
 
 // βテスター指定 (Issue #53)。操作は委員会管理者以上のみ。
@@ -2331,6 +2421,8 @@ function renderUsers() {
   const iCanToggleAppr = canToggleApproval(myRole) // 承認状態の切替
   const iCanManageRole = canManageRoles(myRole)    // ロール変更・削除
   const iCanManageBeta = canManageBetaTester(myRole) // βテスター指定 (Issue #53)
+  // LINE連携解除はユーザー情報の編集権限と同等のロール制約をかける（Issue #21）
+  const iCanUnlinkLine = iCanEditInfo
 
   const ops = (u) => {
     const canOpEdit   = iCanEditInfo   && canManageTargetRole(myRole, u.role)
@@ -2340,6 +2432,8 @@ function renderUsers() {
       ${canOpEdit ? `<button class="btn-xs" onclick="editUser('${u.id}')">編集</button>` : ''}
       ${canOpDelete ? `<button class="btn-xs danger" onclick="deleteUser('${u.id}','${escAttr(u.name || u.email || '')}')">削除</button>` : ''}`
   }
+
+  const canUnlink = (u) => iCanUnlinkLine && canManageTargetRole(myRole, u.role)
 
   const ident = (u) => `
     <div class="user-ident">
@@ -2366,6 +2460,7 @@ function renderUsers() {
               <th class="num">学年・組・番号</th>
               <th class="num">承認</th>
               <th class="num">LINE</th>
+              <th class="num">Push</th>
               <th class="num">β</th>
               <th></th>
             </tr>
@@ -2376,12 +2471,13 @@ function renderUsers() {
                 <td>${ident(u)}</td>
                 <td>${rolePill(u)}</td>
                 <td class="num">
-                  ${roleAttrs(u).length
-                    ? `<div class="user-attrs" style="justify-content:center">${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}</div>`
+                  ${(schoolBadge(u) || roleAttrs(u).length)
+                    ? `<div class="user-attrs" style="justify-content:center">${schoolBadge(u)}${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}</div>`
                     : '<span style="color:var(--text-3)">—</span>'}
                 </td>
                 <td class="num">${approvalCell(u, iCanToggleAppr)}</td>
-                <td class="num">${lineCell(u)}</td>
+                <td class="num">${lineCell(u, canUnlink(u))}</td>
+                <td class="num">${pushCell(u)}</td>
                 <td class="num">${betaCell(u, iCanManageBeta)}</td>
                 <td><div class="row-ops">${ops(u)}</div></td>
               </tr>`).join('')}
@@ -2399,9 +2495,10 @@ function renderUsers() {
             ${rolePill(u)}
           </div>
           <div class="user-card-attrs">
-            ${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}
+            ${schoolBadge(u)}${roleAttrs(u).map(a => `<span class="attr">${a}</span>`).join('')}
             ${approvalCell(u, iCanToggleAppr)}
-            ${lineCell(u)}
+            ${lineCell(u, canUnlink(u))}
+            ${pushCell(u)}
             ${betaCell(u, iCanManageBeta)}
           </div>
           ${(iCanEditInfo || iCanManageRole) ? `<div class="user-card-ops">${ops(u)}</div>` : ''}
@@ -2443,6 +2540,40 @@ window.toggleBetaTester = async function (uid, newBeta) {
   }
 }
 
+/**
+ * LINE連携の解除（管理画面から。Issue #21）
+ * ユーザー情報の編集権限と同じロール制約で操作できる。
+ * 解除後も今後ユーザー自身がマイページから再連携できる。
+ */
+window.unlinkUserLine = async function (uid) {
+  if (!canEditUserInfo(myProfile?.role)) { showToast('この操作を行う権限がありません'); return }
+  const user = allUsers.find(u => u.id === uid)
+  if (!user) return
+  if (!canManageTargetRole(myProfile?.role, user.role)) { showToast('このユーザーを操作する権限がありません'); return }
+  if (!user.lineUserId) return
+  const name = user.lineDisplayName || user.name || user.email || uid
+  if (!confirm(`「${name}」のLINE連携を解除しますか？\n以降、このユーザーにはLINE通知が届かなくなります。`)) return
+  try {
+    // users/{uid} の LINE 連携フィールドを削除（firestore.rules: 委員会管理者以上が対象ロール内で更新可）
+    await updateDoc(doc(db, 'users', uid), {
+      lineUserId:      deleteField(),
+      lineDisplayName: deleteField(),
+      linePictureUrl:  deleteField(),
+      lineNotify:      deleteField(),
+      lineLinkedAt:    deleteField(),
+    })
+    delete user.lineUserId
+    delete user.lineDisplayName
+    delete user.linePictureUrl
+    delete user.lineNotify
+    delete user.lineLinkedAt
+    showToast('LINE連携を解除しました')
+    renderUsers()
+  } catch (e) {
+    showToast('エラー: ' + (e?.message || String(e)))
+  }
+}
+
 window.filterUsers = function (type, value) {
   userFilters[type] = value
   userFilters._staffOnly = false
@@ -2473,7 +2604,8 @@ window.editUser = async function (uid) {
     return
   }
 
-  const iCanChangeRole = canManageRoles(myRole)
+  const iCanChangeRole    = canManageRoles(myRole)
+  const canUnlinkModal    = canEditUserInfo(myRole) && canManageTargetRole(myRole, user.role)
   const roleOptions = assignableRoles(myRole)
   // 現在のロールが選択肢に無い場合（自分より上位のロールを持つ対象など）は表示のみ追加
   if (!roleOptions.includes(user.role)) roleOptions.push(user.role)
@@ -2516,7 +2648,7 @@ window.editUser = async function (uid) {
           <label>クラス <span class="form-tag req" id="f_user_class_req" style="${['moderator', 'admin_student'].includes(user.role) ? '' : 'display:none'}">必須</span></label>
           <select id="f_user_class">
             <option value="">—</option>
-            ${[1, 2, 3, 4, 5, 6].map(i => `<option value="${i}"${String(user.class) === String(i) ? ' selected' : ''}>${i}組</option>`).join('')}
+            ${classOptionTags({ grade: user.grade, selected: user.class, includeEmpty: true })}
           </select>
         </div>
         <div>
@@ -2531,7 +2663,17 @@ window.editUser = async function (uid) {
         <div class="collapse-body">
           <dl class="case-rows" style="margin-top:0">
             <dt>UID</dt><dd style="font-family:monospace;font-size:11px">${escHtml(user.id)}</dd>
-            <dt>LINE</dt><dd>${user.lineUserId ? `連携済み${user.lineDisplayName ? '（' + escHtml(user.lineDisplayName) + '）' : ''}` : '未連携'}</dd>
+            <dt>LINE</dt><dd style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              ${user.lineUserId
+                ? `連携済み${user.lineDisplayName ? '（' + escHtml(user.lineDisplayName) + '）' : ''}`
+                : '未連携'}
+              ${user.lineUserId && canUnlinkModal
+                ? `<button type="button" class="btn-xs danger" onclick="unlinkUserLine('${user.id}')" style="margin-left:auto">LINE連携を解除</button>`
+                : ''}
+            </dd>
+            <dt>プッシュ通知</dt><dd>${(pushCountByUid[user.id] || 0) > 0
+              ? `${pushCountByUid[user.id]}台の端末で利用中`
+              : '未利用'}</dd>
             <dt>承認状態</dt><dd>${user.role === 'student' ? (user.approved ? '承認済み' : '未承認') : '—（生徒以外）'}</dd>
           </dl>
         </div>
@@ -2556,6 +2698,17 @@ window.editUser = async function (uid) {
   }
   roleSel?.addEventListener('change', syncStudentFields)
 
+  // 学年変更に合わせてクラス選択肢を作り直す（7組は3年のみのため）。
+  // その学年で選べないクラスは空欄（未設定）へ戻す
+  const gradeSel = $('f_user_grade')
+  gradeSel?.addEventListener('change', () => {
+    const classSel = $('f_user_class')
+    if (!classSel) return
+    classSel.innerHTML = classOptionTags({
+      grade: gradeSel.value, selected: classSel.value, includeEmpty: true,
+    })
+  })
+
   // ユーザー編集専用の保存処理を一時的にバインド
   const saveBtn = $('modalSaveBtn')
   saveBtn.onclick = async function () {
@@ -2570,18 +2723,26 @@ window.editUser = async function (uid) {
       const targetRole = data.role || user.role
       if (['student', 'moderator', 'admin_student'].includes(targetRole)) {
         const g = val('f_user_grade'), c = val('f_user_class'), n = val('f_user_number')
+        const grade = g ? Number(g) : user.grade
+        if (c && !isValidClassForGrade(c, grade)) {
+          throw new Error('その学年では選択できないクラスです（7組は3年のみ）')
+        }
         // モデレーター・管理者（生徒）は生徒前提のため学年・クラス・番号は必須
         if (['moderator', 'admin_student'].includes(targetRole)) {
           if (!g) throw new Error('学年を入力してください（モデレーター・管理者（生徒）は必須）')
           if (!c) throw new Error('クラスを入力してください（モデレーター・管理者（生徒）は必須）')
           if (!n) throw new Error('出席番号を入力してください（モデレーター・管理者（生徒）は必須）')
           data.grade  = Number(g)
-          data.class  = c
+          data.class  = normalizeClass(c)
           data.number = Number(n)
         } else {
           if (g) data.grade  = Number(g)
-          if (c) data.class  = c
+          if (c) data.class  = normalizeClass(c)
           if (n) data.number = Number(n)
+          // 学年変更で既存のクラスが使えなくなった場合は未設定へ戻す
+          if (data.class === undefined && user.class && !isValidClassForGrade(user.class, grade)) {
+            data.class = deleteField()
+          }
         }
       }
       await updateDoc(doc(db, 'users', uid), data)
@@ -2612,5 +2773,529 @@ window.deleteUser = async function (uid, name) {
     loadUsers()
   } catch (e) {
     alert('削除に失敗しました: ' + (e?.message || String(e)))
+  }
+}
+
+// =============================================
+// カスタムメール送信（手帳デザイン・Resend経由・差込対応）
+// =============================================
+// 宛先リストは「1行目=見出し（変数名）、2行目以降=宛先」のCSV風。
+// 例:
+//   メール,お名前
+//   taro@example.com,山田 太郎
+// 件名・本文・ボタン内の {{変数名}} が1通ごとに置換される。
+// 送信自体は Workers POST /send-custom を宛先ごとに1通ずつ呼ぶ
+// （Workers の30秒制限回避＋BCC漏洩防止のため）。
+
+function mailSplitRow(line) {
+  return String(line).split(/[\t,，、]/).map(c => {
+    let s = String(c ?? '').trim()
+    if (s.length >= 2 && ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))) {
+      s = s.slice(1, -1).trim()
+    }
+    return s
+  })
+}
+
+function mailEmailKey(headers) {
+  const i = headers.findIndex(h => /メール|mail|e-mail/i.test(h))
+  return i >= 0 ? i : -1
+}
+
+function parseMailRecipients() {
+  const raw = String($('mailRecipients')?.value || '').split('\n').map(s => s.trim()).filter(Boolean)
+  if (!raw.length) return { headers: [], rows: [], errors: ['宛先リストが空です'] }
+  const first = mailSplitRow(raw[0])
+  const looksHeader = first.some(c => /メール|mail|e-mail|お名前|名前|name|学年|組|grade|class/i.test(c))
+  const headers = looksHeader ? first : ['メール', 'お名前']
+  const dataLines = looksHeader ? raw.slice(1) : raw
+  const ei = mailEmailKey(headers)
+  if (ei < 0) return { headers, rows: [], errors: ['見出し行に「メール」列がありません（例：メール,お名前）'] }
+  const rows = []
+  const errors = []
+  dataLines.forEach((line, idx) => {
+    const cells = mailSplitRow(line)
+    const vars = {}
+    headers.forEach((h, i) => { vars[h] = cells[i] ?? '' })
+    const email = String(vars[headers[ei]] || '').trim()
+    const lineNo = (looksHeader ? idx + 2 : idx + 1)
+    if (!email || !email.includes('@')) {
+      errors.push(`${lineNo}行目：メールアドレスが不正です（${line || '（空）'}）`)
+      return
+    }
+    rows.push({ email, vars, lineNo })
+  })
+  return { headers, rows, errors }
+}
+
+function mailApplyMerge(template, vars) {
+  const map = (vars && typeof vars === 'object') ? vars : {}
+  return String(template ?? '').replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (m, key) => {
+    const k = String(key).trim()
+    if (Object.prototype.hasOwnProperty.call(map, k)) return String(map[k] ?? '')
+    return m
+  })
+}
+
+function mailCommonVars() {
+  return { 'Slack招待URL': String($('mailSlackUrl')?.value || '').trim() }
+}
+
+function mailTemplateRaw() {
+  return {
+    subject:   $('mailSubject')?.value || '',
+    badge:     $('mailBadge')?.value || '',
+    title:     $('mailTitle')?.value || '',
+    greeting:  $('mailGreeting')?.value || '',
+    body:      $('mailBody')?.value || '',
+    btnLabel:  $('mailBtnLabel')?.value || '',
+    btnUrl:    $('mailBtnUrl')?.value || '',
+    footer:    $('mailFooter')?.value || '',
+  }
+}
+
+function mailEsc(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function mailVarsFor(row) {
+  return { ...mailCommonVars(), ...(row?.vars || {}) }
+}
+
+function mailPreviewHtml(t, vars) {
+  const subject = mailApplyMerge(t.subject, vars)
+  const badge   = mailApplyMerge(t.badge, vars)
+  const title   = mailApplyMerge(t.title, vars)
+  const name    = mailApplyMerge(t.greeting, vars).trim()
+  const body    = mailApplyMerge(t.body, vars)
+  const btnLbl  = mailApplyMerge(t.btnLabel, vars)
+  const btnUrl  = mailApplyMerge(t.btnUrl, vars).trim()
+  const bodyHtml = mailEsc(body).replace(/\n/g, '<br>')
+    .replace(/(https?:\/\/[^\s<>"']+)/g, '<a href="$1" style="color:#1a2744">$1</a>')
+  return `
+    <div style="font-size:11px;color:#818894;margin-bottom:8px">件名: ${mailEsc(subject) || '（未入力）'}</div>
+    <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e3e6ea">
+      <div style="background:#1a2744;padding:16px 20px">
+        <div style="color:#fff;font-size:16px;font-weight:700">水戸第一高等学校</div>
+        <div style="color:#a0b0cc;font-size:11px;margin-top:2px">デジタル生徒手帳</div>
+      </div>
+      <div style="padding:20px">
+        ${badge ? `<div style="margin-bottom:10px"><span style="display:inline-block;font-size:12px;font-weight:600;color:#1a2744;background:rgba(26,39,68,.07);border:1px solid #e0e0e0;border-radius:999px;padding:3px 10px">${mailEsc(badge)}</span></div>` : ''}
+        ${title ? `<div style="font-size:17px;font-weight:700;color:#1a2744;margin:0 0 12px">${mailEsc(title)}</div>` : ''}
+        ${name ? `<p style="color:#333;font-size:14px;margin:0 0 12px">${mailEsc(name)} 様<br><br>お世話になっております。</p>` : ''}
+        <div style="background:#f8f9fa;border-radius:8px;padding:14px 16px;font-size:13.5px;color:#333;line-height:1.9;border-left:4px solid #1a2744">${bodyHtml || '<span style="color:#818894">（本文未入力）</span>'}</div>
+        ${(btnLbl && btnUrl) ? `<div style="text-align:center;margin:16px 0 4px"><span style="display:inline-block;background:#1a2744;color:#fff;padding:12px 26px;border-radius:8px;font-size:13.5px;font-weight:700">${mailEsc(btnLbl)}</span><div style="font-size:11px;color:#818894;margin-top:6px;word-break:break-all">${mailEsc(btnUrl)}</div></div>` : ''}
+      </div>
+    </div>`
+}
+
+function refreshMailCount() {
+  const { rows } = parseMailRecipients()
+  const el = $('mailCount')
+  if (el) el.textContent = `${rows.length} 件`
+}
+
+window.previewCustomMail = function () {
+  const t = mailTemplateRaw()
+  const { rows } = parseMailRecipients()
+  const vars = mailVarsFor(rows[0])
+  const box = $('mailPreview')
+  if (box) box.innerHTML = mailPreviewHtml(t, vars)
+  refreshMailCount()
+  if (!rows.length) showToast('宛先リストに有効な行がありません')
+}
+
+async function mailPostCustom({ to, vars }) {
+  const t = mailTemplateRaw()
+  const res = await fetch(AI_URL + '/send-custom', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      to,
+      subject:      t.subject,
+      title:        t.title,
+      badge:        t.badge,
+      greetingName: t.greeting,
+      bodyText:     t.body,
+      buttonLabel:  t.btnLabel,
+      buttonUrl:    t.btnUrl,
+      footerNote:   t.footer,
+      vars,
+      appBaseUrl:   window.location.origin,
+    }),
+  })
+  if (!res.ok) {
+    const raw = await res.text().catch(() => '')
+    let message = raw
+    try {
+      const parsed = JSON.parse(raw)
+      message = parsed.hint || parsed.detail || parsed.error || raw
+    } catch { /* 非JSONは本文のまま */ }
+    throw new Error(`送信失敗 (${res.status}): ${message}`)
+  }
+  return res.json().catch(() => ({}))
+}
+
+function loadCustomMailSection() {
+  const can = canReplyInquiries(myProfile?.role)
+  const forbidden = $('mailForbidden')
+  const form = $('mailForm')
+  if (!can) {
+    if (forbidden) {
+      forbidden.style.display = ''
+      forbidden.innerHTML = `<div class="notice warn">メール送信は委員会管理者以上のみ行えます（現在：${mailEsc(myProfile?.role || '不明')}）。プレビューと宛先リストの編集はできますが、送信ボタンは無効です。</div>`
+    }
+  } else if (forbidden) {
+    forbidden.style.display = 'none'
+    forbidden.innerHTML = ''
+  }
+  if (form) form.style.opacity = can ? '' : '.55'
+  document.querySelectorAll('#sec-mail button.btn-add, #sec-mail button.btn-xs.send, #sec-mail button.btn-xs:not([onclick^="preview"])').forEach(b => {
+    if (/一斉送信|テスト送信/.test(b.textContent)) b.disabled = !can
+  })
+  const ta = $('mailRecipients')
+  if (ta && !ta.dataset.bound) {
+    ta.dataset.bound = '1'
+    ta.addEventListener('input', refreshMailCount)
+  }
+  const presetSel = $('mailPreset')
+  if (presetSel && !presetSel.dataset.current) presetSel.dataset.current = presetSel.value || 'info-join'
+  previewCustomMail()
+}
+
+window.sendTestCustomMail = async function (evt) {
+  if (!canReplyInquiries(myProfile?.role)) { showToast('送信する権限がありません（委員会管理者以上のみ）'); return }
+  const t = mailTemplateRaw()
+  if (!t.subject.trim()) { showToast('件名を入力してください'); return }
+  if (!t.body.trim()) { showToast('本文を入力してください'); return }
+  const { rows, errors } = parseMailRecipients()
+  const to = String($('mailTestTo')?.value || '').trim() || rows[0]?.email || ''
+  if (!to || !to.includes('@')) { showToast('テスト送信先のアドレスを入力してください'); return }
+  const vars = mailVarsFor(rows[0])
+  const btn = evt?.currentTarget
+  if (btn) { btn.disabled = true; btn.textContent = '送信中...' }
+  try {
+    await mailPostCustom({ to, vars })
+    showToast('テスト送信しました: ' + to)
+  } catch (e) {
+    showToast('メール送信エラー: ' + e.message)
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'テスト送信' }
+}
+
+window.sendBulkCustomMail = async function (evt) {
+  if (!canReplyInquiries(myProfile?.role)) { showToast('送信する権限がありません（委員会管理者以上のみ）'); return }
+  const t = mailTemplateRaw()
+  if (!t.subject.trim()) { showToast('件名を入力してください'); return }
+  if (!t.body.trim()) { showToast('本文を入力してください'); return }
+  const { rows, errors } = parseMailRecipients()
+  if (!rows.length) { showToast('有効な宛先がありません' + (errors[0] ? '：' + errors[0] : '')); return }
+  if (!confirm(`${rows.length}件に送信しますか？\n件名：${t.subject}\n1件目：${rows[0].email}`)) return
+  const btn = evt?.currentTarget
+  if (btn) btn.disabled = true
+  const bar = $('mailProgressBar')
+  const prog = $('mailProgress')
+  const out = $('mailResult')
+  if (prog) prog.style.display = ''
+  if (out) out.textContent = ''
+  const failures = []
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    try {
+      await mailPostCustom({ to: r.email, vars: mailVarsFor(r) })
+    } catch (e) {
+      failures.push(`${r.lineNo}行目 ${r.email}: ${e.message}`)
+    }
+    if (bar) bar.style.width = `${Math.round(((i + 1) / rows.length) * 100)}%`
+    if (out) out.textContent = `送信中... ${i + 1}/${rows.length}`
+    if (i < rows.length - 1) await new Promise(res => setTimeout(res, 350))
+  }
+  if (btn) btn.disabled = false
+  const ok = rows.length - failures.length
+  if (out) {
+    out.textContent = `完了：${ok}/${rows.length}件 成功`
+      + (errors.length ? `\nリスト注意：\n- ${errors.join('\n- ')}` : '')
+      + (failures.length ? `\n失敗：\n- ${failures.join('\n- ')}` : '')
+  }
+  showToast(failures.length ? `一斉送信：${ok}/${rows.length}件成功` : `一斉送信が完了しました（${ok}件）`)
+}
+
+// =============================================
+// カスタムメールのテンプレートプリセット
+// =============================================
+const MAIL_PRESETS = {
+  'info-join': {
+    subject: '【情報委員会】加入のお知らせとSlackへのご案内',
+    badge: '情報委員会',
+    title: '情報委員会への加入を歓迎します',
+    greeting: '{{お名前}}',
+    body: [
+      'このたびは情報委員会への加入を希望いただき、ありがとうございます。',
+      '加入手続きが完了しましたので、お知らせします。',
+      '',
+      '委員会の連絡は Slack で行っています。お手数ですが、下のボタンからワークスペースに参加してください。',
+      '参加後、表示名を「学年・組・氏名」にして #general で自己紹介をお願いします。',
+      '',
+      '招待URL: {{Slack招待URL}}',
+      'うまく参加できない場合は、このメールに返信してください。',
+      '{{お名前}}様と一緒に活動できるのを楽しみにしています。',
+    ].join('\n'),
+    btnLabel: 'Slackワークスペースに参加する',
+    btnUrl: '{{Slack招待URL}}',
+  },
+  'beta': {
+    subject: '【デジタル生徒手帳】βテスター認定のお知らせ',
+    badge: 'βテスター認定',
+    title: 'βテスターに認定しました',
+    greeting: '{{お名前}}',
+    body: [
+      'このたびはデジタル生徒手帳のβテストにご協力いただき、ありがとうございます。',
+      '{{お名前}}様をβテスターに認定しましたので、お知らせします。',
+      '',
+      'βテスターには、新機能を正式公開前に先行してお試しいただけます。',
+      'つきましては、次の2点をお願いします。',
+      '',
+      '1．デジタル生徒手帳のアカウント作成（まだの方）',
+      'https://mito1-tetyo.tech を開き、新規登録からアカウントを作成してください。',
+      '※学校のメールアドレス（@mito1-h.ibk.ed.jp）の使用を推奨します。',
+      '※登録直後は「未承認」のため一部機能が制限されます。承認は委員会が行います。',
+      '',
+      '2．Slackへの参加',
+      '委員会からの連絡は Slack で行っています。下のボタンからワークスペースに参加し、表示名を「学年・組・氏名」にしてください。',
+      '招待URL: {{Slack招待URL}}',
+      '',
+      '参加後は、使ってみた感想や不具合の報告をお待ちしています。',
+      'うまく登録・参加できない場合は、このメールに返信してください。',
+    ].join('\n'),
+    btnLabel: 'Slackワークスペースに参加する',
+    btnUrl: '{{Slack招待URL}}',
+  },
+}
+
+window.applyMailPreset = function (key) {
+  const p = MAIL_PRESETS[key]
+  if (!p) return
+  if (!confirm('テンプレートを適用しますか？\n件名・見出し・本文・ボタンが上書きされます（宛先リストは保持されます）。')) {
+    const sel = $('mailPreset')
+    if (sel) sel.value = sel.dataset.current || 'info-join'
+    return
+  }
+  $('mailSubject').value  = p.subject
+  $('mailBadge').value    = p.badge
+  $('mailTitle').value    = p.title
+  $('mailGreeting').value = p.greeting
+  $('mailBody').value     = p.body
+  $('mailBtnLabel').value = p.btnLabel
+  $('mailBtnUrl').value   = p.btnUrl
+  const sel = $('mailPreset')
+  if (sel) sel.dataset.current = key
+  previewCustomMail()
+  showToast('テンプレートを適用しました')
+}
+
+// =============================================
+// 時間割APIキー管理（外部提供・Key式・有料前提）
+//   コレクション: timetableApiKeys/{keyId}
+//   ドキュメント: keyId, keyHash(sha256hex), keyPrefix(表示用),
+//     name, quotaDaily, revoked, revokedAt, dailyDate, dailyCount, totalCount,
+//     lastUsedAt, createdAt, createdBy, note
+//   平文キー `mt1_<12hex>_<48hex>` は発行時の一度だけ表示し、DBには保存しない。
+//   権限は委員会管理者以上（モデレーター不可）。firestore.rules 側でも同じ制限。
+// =============================================
+const TIMETABLE_API_KEYS_COL = 'timetableApiKeys'
+
+function renderApiKeysForbidden() {
+  const forbidden = $('apiKeysForbidden')
+  const body = $('apiKeysBody')
+  if (forbidden) {
+    forbidden.style.display = ''
+    forbidden.innerHTML = `<div class="notice warn">時間割APIキーの管理は委員会管理者以上のみ行えます（現在：${escHtml(myProfile?.role || '不明')}）。</div>`
+  }
+  if (body) body.style.opacity = '.55'
+}
+
+function apiKeyDateStr(v) {
+  try {
+    if (!v) return '—'
+    const d = typeof v.toDate === 'function' ? v.toDate() : new Date(v.seconds ? v.seconds * 1000 : v)
+    if (Number.isNaN(d.getTime())) return '—'
+    return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  } catch { return '—' }
+}
+
+function randomHex(bytes) {
+  const buf = new Uint8Array(bytes)
+  crypto.getRandomValues(buf)
+  return [...buf].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function sha256HexClient(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text)))
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function loadApiKeys() {
+  const forbidden = $('apiKeysForbidden')
+  const body = $('apiKeysBody')
+  if (forbidden) { forbidden.style.display = 'none'; forbidden.innerHTML = '' }
+  if (body) body.style.opacity = ''
+  if (!isCommitteeAdmin(myProfile?.role)) { renderApiKeysForbidden(); return }
+  const el = $('apiKeysList')
+  if (el) el.innerHTML = spinner()
+  let items = []
+  try {
+    const snap = await getDocs(collection(db, TIMETABLE_API_KEYS_COL))
+    items = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    items.sort((a, b) => {
+      const at = a.createdAt?.seconds || 0
+      const bt = b.createdAt?.seconds || 0
+      return bt - at
+    })
+  } catch (e) {
+    console.error('[admin] loadApiKeys failed', e)
+    if (el) el.innerHTML = errorState(e)
+    return
+  }
+  if (!el) return
+  if (!items.length) {
+    el.innerHTML = emptyState('まだAPIキーがありません', '上のフォームから最初のキーを発行してください')
+    return
+  }
+  el.innerHTML = items.map(k => {
+    const revoked = !!k.revoked
+    const pill = revoked
+      ? '<span style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;color:#c0392b;background:#fdecea">無効</span>'
+      : '<span style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;color:#155724;background:#d4edda">有効</span>'
+    const usage = `本日 ${Number(k.dailyCount || 0)} / 上限 ${Number(k.quotaDaily || 1000)}（${escHtml(k.dailyDate || '—')}）・累計 ${Number(k.totalCount || 0)}`
+    return `
+    <div class="item-card" style="margin-bottom:10px;${revoked ? 'opacity:.75' : ''}">
+      <div class="item-card-header">
+        <span class="item-num">KEY</span>
+        <span class="item-title">${escHtml(k.name || '(名称未設定)')} <span style="font-weight:400;color:var(--text-3);font-size:11px">${escHtml(k.keyPrefix || k.id)}</span></span>
+        ${pill}
+        <div class="item-actions">
+          ${revoked
+            ? `<button class="btn-xs" onclick="restoreTimetableApiKey('${escHtml(k.id)}')">復活</button>`
+            : `<button class="btn-xs" onclick="revokeTimetableApiKey('${escHtml(k.id)}')">無効化</button>`}
+          <button class="btn-xs danger" onclick="deleteTimetableApiKey('${escHtml(k.id)}')">削除</button>
+        </div>
+      </div>
+      <div class="item-card-body">
+        <div style="font-size:11px;color:var(--text-3)">利用量: ${escHtml(usage)} ／ 最終利用: ${escHtml(apiKeyDateStr(k.lastUsedAt))} ／ 発行: ${escHtml(apiKeyDateStr(k.createdAt))}（${escHtml(k.createdBy || '')}）</div>
+        ${k.note ? `<div class="item-body-text" style="margin-top:6px">${escHtml(k.note)}</div>` : ''}
+        <div style="font-size:11px;color:var(--text-3);margin-top:8px;line-height:1.8">
+          一覧: <code>/api/v1/timetable/list?key=...</code><br>
+          画像: <code>/api/v1/timetable/image?date=YYYY-MM-DD&amp;slot=0&amp;key=...</code>（&lt;img src&gt;に直接指定可）
+        </div>
+      </div>
+    </div>`
+  }).join('')
+}
+
+window.loadApiKeys = loadApiKeys
+
+window.issueTimetableApiKey = async function (evt) {
+  if (!isCommitteeAdmin(myProfile?.role)) { showToast('権限がありません（委員会管理者以上のみ）'); return }
+  const name = String($('apiKeyName')?.value || '').trim()
+  const note = String($('apiKeyNote')?.value || '').trim()
+  const quotaRaw = Number($('apiKeyQuota')?.value || 1000)
+  const quotaDaily = Number.isFinite(quotaRaw) ? Math.min(100000, Math.max(1, Math.floor(quotaRaw))) : 1000
+  if (!name) { showToast('利用者名・用途を入力してください'); return }
+  const btn = evt?.currentTarget
+  if (btn) btn.disabled = true
+  try {
+    const keyId = randomHex(6)
+    const secret = randomHex(24)
+    const plain = `mt1_${keyId}_${secret}`
+    const keyHash = await sha256HexClient(plain)
+    await setDoc(doc(db, TIMETABLE_API_KEYS_COL, keyId), {
+      keyId,
+      keyHash,
+      keyPrefix: `mt1_${keyId}_…${secret.slice(-4)}`,
+      name,
+      note,
+      quotaDaily,
+      revoked: false,
+      revokedAt: null,
+      dailyDate: '',
+      dailyCount: 0,
+      totalCount: 0,
+      lastUsedAt: null,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.email || auth.currentUser?.uid || '',
+    })
+    const box = $('apiKeyIssued')
+    if (box) {
+      box.innerHTML = `
+        <div class="notice" style="background:#e6f4ec;color:#155724;border-color:#bfe3cd">
+          キーを発行しました（再表示不可）。利用者に安全に渡してください。<br>
+          <code id="apiKeyPlain" style="user-select:all;word-break:break-all">${escHtml(plain)}</code>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-xs primary" onclick="copyTimetableApiKey()">コピーする</button>
+          </div>
+        </div>`
+    }
+    const nameEl = $('apiKeyName')
+    const noteEl = $('apiKeyNote')
+    if (nameEl) nameEl.value = ''
+    if (noteEl) noteEl.value = ''
+    showToast('APIキーを発行しました')
+    await loadApiKeys()
+  } catch (e) {
+    console.error('[admin] issueApiKey failed', e)
+    showToast('発行に失敗しました: ' + (e?.message || e))
+  }
+  if (btn) btn.disabled = false
+}
+
+window.copyTimetableApiKey = async function () {
+  const code = $('apiKeyPlain')
+  const text = code ? code.textContent.trim() : ''
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    showToast('キーをコピーしました')
+  } catch {
+    const r = document.createRange()
+    r.selectNodeContents(code)
+    const sel = getSelection()
+    sel.removeAllRanges()
+    sel.addRange(r)
+    showToast('キーを選択しました（Ctrl+Cでコピー）')
+  }
+}
+
+window.revokeTimetableApiKey = async function (keyId) {
+  if (!isCommitteeAdmin(myProfile?.role)) { showToast('権限がありません（委員会管理者以上のみ）'); return }
+  if (!confirm('このAPIキーを無効化しますか？\n無効化すると直ちに画像・一覧の取得ができなくなります。')) return
+  try {
+    await updateDoc(doc(db, TIMETABLE_API_KEYS_COL, keyId), { revoked: true, revokedAt: serverTimestamp() })
+    showToast('キーを無効化しました')
+    await loadApiKeys()
+  } catch (e) {
+    showToast('無効化に失敗しました: ' + (e?.message || e))
+  }
+}
+
+window.restoreTimetableApiKey = async function (keyId) {
+  if (!isCommitteeAdmin(myProfile?.role)) { showToast('権限がありません（委員会管理者以上のみ）'); return }
+  try {
+    await updateDoc(doc(db, TIMETABLE_API_KEYS_COL, keyId), { revoked: false, revokedAt: deleteField() })
+    showToast('キーを復活しました')
+    await loadApiKeys()
+  } catch (e) {
+    showToast('復活に失敗しました: ' + (e?.message || e))
+  }
+}
+
+window.deleteTimetableApiKey = async function (keyId) {
+  if (!isCommitteeAdmin(myProfile?.role)) { showToast('権限がありません（委員会管理者以上のみ）'); return }
+  if (!confirm('このAPIキーを完全に削除しますか？\n削除後は同じキーの再発行・復活はできません。')) return
+  try {
+    await deleteDoc(doc(db, TIMETABLE_API_KEYS_COL, keyId))
+    showToast('キーを削除しました')
+    await loadApiKeys()
+  } catch (e) {
+    showToast('削除に失敗しました: ' + (e?.message || e))
   }
 }

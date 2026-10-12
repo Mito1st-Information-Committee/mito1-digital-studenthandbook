@@ -10,6 +10,7 @@
 
   gtag('config', 'G-C0CFLJ03F6');
 </script>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4414301960233587" crossorigin="anonymous"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>管理者ポータル — 水戸第一高等学校デジタル生徒手帳</title>
@@ -282,6 +283,7 @@ a{color:inherit}
   font-size:10px;color:var(--navy);background:var(--navy-dim);
   padding:2px 8px;border-radius:var(--r-sm);white-space:nowrap;
 }
+.item-chip-audio{color:#0e6655;background:#d1f2eb}
 .item-actions{display:flex;gap:3px;flex-shrink:0;align-items:center}
 .btn-icon{
   width:32px;height:32px;border:1px solid transparent;background:none;
@@ -576,6 +578,8 @@ a{color:inherit}
   font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:var(--r-sm);
   background:var(--surface2);color:var(--text-2);border:1px solid var(--border-2);white-space:nowrap;
 }
+/* 附属中学校バッジ（A組/B組のユーザー用。高校と見分けられるよう紺系で強調） */
+.attr-jh{background:var(--navy-dim);color:var(--navy);border-color:transparent;}
 .role-pill{font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap}
 .toggle-pill{border:none;cursor:pointer;font:inherit;font-size:10.5px;font-weight:700;padding:4px 11px;border-radius:20px;transition:filter .12s}
 .toggle-pill:hover{filter:brightness(.96)}
@@ -630,6 +634,26 @@ a{color:inherit}
 .iq-reply-ops .btn-xs{height:34px}
 .btn-xs.send{border-color:#1e8449;background:#1e8449;color:#fff}
 .btn-xs.send:hover{background:#19703d}
+/* =========================================================
+   CUSTOM MAIL（管理者からのHTMLメール送信）
+========================================================= */
+.mail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mail-grid .full{grid-column:1 / -1}
+.mail-hint{font-size:11.5px;color:var(--text-3);line-height:1.8}
+.mail-textarea{
+  width:100%;border:1.5px solid var(--border);border-radius:var(--r-sm);
+  padding:10px 12px;font-size:13px;background:var(--surface);color:var(--text);
+  outline:none;line-height:1.8;resize:vertical;
+}
+.mail-textarea:focus{border-color:var(--navy);box-shadow:0 0 0 3px rgba(26,39,68,.08)}
+.mail-preview{
+  border:1px solid var(--border);border-radius:var(--r-sm);background:#f5f5f5;
+  padding:14px;max-height:420px;overflow:auto;
+}
+.mail-progress{height:8px;background:var(--surface3);border-radius:6px;overflow:hidden;margin-top:10px}
+.mail-progress > div{height:100%;width:0;background:var(--navy);border-radius:6px;transition:width .2s}
+.mail-result{font-size:12px;color:var(--text-2);line-height:1.8;white-space:pre-wrap}
+@media (max-width:860px){.mail-grid{grid-template-columns:1fr}}
 .case-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:17px 19px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
 .case-rows{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px;color:var(--text-3);margin-top:8px}
 .case-rows dt{font-weight:600;white-space:nowrap}
@@ -931,6 +955,14 @@ a{color:inherit}
         お問い合わせ
         <span class="sb-badge alert" id="inquiryBadge" style="display:none"></span>
       </button>
+      <button class="adm-sb-item" data-sec="mail" id="sbMail">
+        <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>
+        メール送信
+      </button>
+      <button class="adm-sb-item" data-sec="apikeys" id="sbApiKeys">
+        <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        時間割APIキー
+      </button>
       <button class="adm-sb-item" data-sec="cases">
         <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
         公欠申請ケース
@@ -1230,6 +1262,166 @@ a{color:inherit}
         <div id="inquiriesList"><div class="loading-spinner"><div class="spinner"></div>読み込み中...</div></div>
       </section>
 
+      <!-- CUSTOM MAIL（Issue: 手帳デザインのHTMLメールをResendで送信・差込対応） -->
+      <section class="adm-section" id="sec-mail">
+        <div class="adm-section-header">
+          <div class="adm-section-heading">
+            <div class="adm-section-title">メール送信</div>
+            <div class="adm-section-sub">お問い合わせ返信と同じ手帳デザインで送信（Resend経由）。{{お名前}} などの差込に対応</div>
+          </div>
+          <div class="adm-section-tools">
+            <button class="btn-ghost" onclick="previewCustomMail()">
+              <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              プレビュー更新
+            </button>
+          </div>
+        </div>
+        <div id="mailForbidden" style="display:none"></div>
+        <div id="mailForm">
+        <div class="panel panel-pad" style="margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label class="form-label" for="mailPreset" style="margin-bottom:0">テンプレート</label>
+          <select class="select-ctl" id="mailPreset" onchange="applyMailPreset(this.value)" style="min-width:280px">
+            <option value="info-join">情報委員会・加入案内＋Slack誘導</option>
+            <option value="beta">βテスター認定＋Slack・アカウント作成依頼</option>
+          </select>
+          <span class="mail-hint">切り替えると件名・本文が上書きされます（宛先・共通変数は保持）</span>
+        </div>
+        <div class="panel panel-pad" style="margin-bottom:14px">
+          <div class="mail-grid">
+            <div class="form-group full" style="margin-bottom:0">
+              <label class="form-label" for="mailSubject">件名（{{変数}} が使えます）<span style="color:var(--enjii)"> 必須</span></label>
+              <input class="form-input" id="mailSubject" value="【情報委員会】加入のお知らせとSlackへのご案内" placeholder="例：【情報委員会】{{お名前}}様へのお知らせ">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailBadge">バッジ（ヘッダー下の小ラベル）</label>
+              <input class="form-input" id="mailBadge" value="情報委員会" placeholder="例：情報委員会">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailTitle">見出し（メール内の大見出し）</label>
+              <input class="form-input" id="mailTitle" value="情報委員会への加入を歓迎します" placeholder="例：情報委員会への加入を歓迎します">
+            </div>
+            <div class="form-group full" style="margin-bottom:0">
+              <label class="form-label" for="mailGreeting">宛名（未入力なら省略。{{お名前}} が使えます）</label>
+              <input class="form-input" id="mailGreeting" value="{{お名前}}" placeholder="例：{{お名前}}">
+              <div class="mail-hint">送信時に「○○ 様」と表示されます。不要なら空にしてください。</div>
+            </div>
+            <div class="form-group full" style="margin-bottom:0">
+              <label class="form-label" for="mailBody">本文（{{変数}}・改行・URL自動リンク対応）<span style="color:var(--enjii)"> 必須</span></label>
+              <textarea class="mail-textarea" id="mailBody" rows="9">このたびは情報委員会への加入を希望いただき、ありがとうございます。
+加入手続きが完了しましたので、お知らせします。
+
+委員会の連絡は Slack で行っています。お手数ですが、下のボタンからワークスペースに参加してください。
+参加後、表示名を「学年・組・氏名」にして #general で自己紹介をお願いします。
+
+招待URL: {{Slack招待URL}}
+うまく参加できない場合は、このメールに返信してください。
+{{お名前}}様と一緒に活動できるのを楽しみにしています。</textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailBtnLabel">ボタンラベル（空ならボタンなし）</label>
+              <input class="form-input" id="mailBtnLabel" value="Slackワークスペースに参加する" placeholder="例：Slackに参加する">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailBtnUrl">ボタンURL（{{変数}} 可）</label>
+              <input class="form-input" id="mailBtnUrl" value="https://join.slack.com/t/w1788425978-zes996195/shared_invite/zt-48mlk5xiv-_tDkmVcd8l1EBjEXCFOVtQ" placeholder="https://...">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailSlackUrl">共通変数 {{Slack招待URL}} の値</label>
+              <input class="form-input" id="mailSlackUrl" value="https://join.slack.com/t/w1788425978-zes996195/shared_invite/zt-48mlk5xiv-_tDkmVcd8l1EBjEXCFOVtQ">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="mailFooter">フッター注記</label>
+              <input class="form-input" id="mailFooter" value="このメールはデジタル生徒手帳から送信されています。心当たりがない場合は破棄してください。">
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel-pad" style="margin-bottom:14px">
+          <label class="form-label" for="mailRecipients">宛先リスト（1行1人・カンマ/タブ区切り。1行目が見出し＝変数名）<span style="color:var(--enjii)"> 必須</span></label>
+          <textarea class="mail-textarea" id="mailRecipients" rows="6" placeholder="メール,お名前&#10;taro@example.com,山田 太郎&#10;hanako@example.com,山田 花子">メール,お名前
+taro@example.com,山田 太郎</textarea>
+          <div class="mail-hint" style="margin-top:8px">
+            ・1行目は見出しです（例：<code>メール,お名前,学年</code>）。2行目以降が宛先です。<br>
+            ・見出しにない変数は、上の「共通変数」や本文中の固定値として使えます（例：<code>{{Slack招待URL}}</code>）。<br>
+            ・見出し行がない場合（いきなり <code>a@x,山田</code> の場合）は <code>メール,お名前</code> とみなします。
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">
+            <span style="font-size:12px;color:var(--text-2)" id="mailCount">0 件</span>
+            <span style="flex:1"></span>
+            <input class="input-ctl" id="mailTestTo" type="email" placeholder="テスト送信先（自分のアドレス）" style="min-width:240px">
+            <button class="btn-xs" onclick="sendTestCustomMail(event)">テスト送信</button>
+          </div>
+        </div>
+
+        <div class="panel panel-pad" style="margin-bottom:14px">
+          <div class="form-label">プレビュー（宛先1件目で差込適用）</div>
+          <div class="mail-preview" id="mailPreview"><span class="mail-hint">「プレビュー更新」を押すと表示されます</span></div>
+        </div>
+
+        <div class="panel panel-pad">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn-add" onclick="sendBulkCustomMail(event)" style="min-width:220px;justify-content:center">
+              <svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>
+              一斉送信する
+            </button>
+            <span class="mail-hint">1通ずつ Resend 経由で送信します（宛先に他者のアドレスは入りません）。</span>
+          </div>
+          <div class="mail-progress" id="mailProgress" style="display:none"><div id="mailProgressBar"></div></div>
+          <div class="mail-result" id="mailResult" style="margin-top:10px"></div>
+        </div>
+        </div>
+      </section>
+
+      <!-- TIMETABLE API KEYS（時間割APIのKey発行・管理。有料提供前提） -->
+      <section class="adm-section" id="sec-apikeys">
+        <div class="adm-section-header">
+          <div class="adm-section-heading">
+            <div class="adm-section-title">時間割APIキー</div>
+            <div class="adm-section-sub">過去1週間（直近7件）の時間割画像を外部提供するAPIキーの発行・無効化（委員会管理者以上のみ）</div>
+          </div>
+          <div class="adm-section-tools">
+            <button class="btn-ghost" onclick="loadApiKeys()">
+              <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              更新
+            </button>
+          </div>
+        </div>
+        <div id="apiKeysForbidden" style="display:none"></div>
+        <div id="apiKeysBody">
+        <div style="font-size:11.5px;color:var(--text-3);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;line-height:1.8">
+          ・キーは <code>mt1_&lt;keyId&gt;_&lt;secret&gt;</code> 形式。平文は発行時の一度だけ表示されます（DBにはSHA-256ハッシュのみ保存）。<br>
+          ・利用者は <code>GET /api/v1/timetable/list?key=...</code> で一覧、<code>GET /api/v1/timetable/image?date=YYYY-MM-DD&amp;slot=0&amp;key=...</code> で画像バイナリを取得します。<code>&lt;img src=".../image?date=...&amp;slot=0&amp;key=..."&gt;</code> に直接指定できます。<br>
+          ・画像のorigin URLはAPI応答に含めません（推測取得の抑止）。ただし現行の <code>public/timetable/</code> はPagesの静的公開のため完全秘匿にはR2等への移行が必要です。
+        </div>
+        <div class="panel panel-pad" style="margin-bottom:14px">
+          <div class="form-label">新しいキーを発行</div>
+          <div class="mail-grid">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="apiKeyName">利用者名・用途 <span style="color:var(--enjii)">必須</span></label>
+              <input class="form-input" id="apiKeyName" placeholder="例：○○塾 ・ 時間割連携" maxlength="80">
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="apiKeyQuota">日次上限（件/日）</label>
+              <input class="form-input" id="apiKeyQuota" type="number" min="1" max="100000" value="1000">
+            </div>
+            <div class="form-group full" style="margin-bottom:0">
+              <label class="form-label" for="apiKeyNote">メモ（任意）</label>
+              <input class="form-input" id="apiKeyNote" placeholder="例：契約プラン・担当者・期限など" maxlength="200">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">
+            <button class="btn-add" onclick="issueTimetableApiKey(event)">
+              <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              キーを発行する
+            </button>
+            <span class="mail-hint">発行直後に表示される平文キーを利用者に渡してください（再表示不可）。</span>
+          </div>
+          <div id="apiKeyIssued" style="margin-top:12px"></div>
+        </div>
+        <div id="apiKeysList"><div class="loading-spinner"><div class="spinner"></div>読み込み中...</div></div>
+        </div>
+      </section>
+
       <!-- CASES -->
       <section class="adm-section" id="sec-cases">
         <div class="adm-section-header">
@@ -1299,6 +1491,9 @@ a{color:inherit}
               <option value="4">4組</option>
               <option value="5">5組</option>
               <option value="6">6組</option>
+              <option value="7">7組</option>
+              <option value="8">A組</option>
+              <option value="9">B組</option>
             </select>
             <select class="select-ctl" id="userStatusFilter" onchange="filterUsers('status',this.value)" aria-label="状態で絞り込み">
               <option value="all">承認状態すべて</option>
@@ -1307,6 +1502,8 @@ a{color:inherit}
               <option value="beta">βテスターのみ</option>
               <option value="line">LINE連携済み</option>
               <option value="noline">LINE未連携</option>
+              <option value="push">Push利用中</option>
+              <option value="nopush">Push未利用</option>
             </select>
             <select class="select-ctl" id="userSortSelect" onchange="sortUsers(this.value)" aria-label="並び順">
               <option value="role">並び順: ロール</option>

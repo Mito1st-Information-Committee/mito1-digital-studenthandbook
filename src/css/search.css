@@ -1,0 +1,63 @@
+/* search.css — index.html の <style> から純粋移動（見た目変更なし）。
+   カスケード順は index.html の <link> 記述順に依存するため、link の順序を変えないこと。 */
+/* ===========================
+   SEARCH PAGE
+=========================== */
+.search-page-wrap{max-width:700px;margin:0 auto;min-width:0}
+.search-page-bar{
+  display:flex;gap:8px;margin-bottom:20px;align-items:center;
+  flex-wrap:wrap;
+}
+.search-bar-wrap{position:relative;flex:1;min-width:0}
+.search-page-input{
+  width:100%;height:44px;background:var(--surface);
+  border:1.5px solid var(--border);border-radius:9px;
+  padding:0 16px 0 42px;font-size:14px;color:var(--text);outline:none;
+  transition:all .2s;box-sizing:border-box;
+}
+.search-page-input:focus{border-color:var(--navy);box-shadow:0 0 0 3px rgba(26,39,68,.07)}
+.search-page-icon{
+  position:absolute;left:14px;top:50%;transform:translateY(-50%);
+  color:var(--text-3);pointer-events:none;
+}
+.search-page-icon svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
+
+.search-toggle{
+  display:flex;background:var(--surface2);border-radius:8px;
+  border:1.5px solid var(--border);overflow:hidden;flex-shrink:0;
+}
+.stoggle{
+  padding:9px 12px;border:none;background:none;
+  font-size:12px;font-weight:500;color:var(--text-3);cursor:pointer;
+  transition:all .15s;white-space:nowrap;
+}
+.stoggle.on{background:var(--navy);color:white}
+
+.search-page-results{margin-top:4px}
+.sp-result-item{
+  padding:14px 16px;background:var(--surface);
+  border:1.5px solid var(--border);border-radius:var(--r);
+  margin-bottom:10px;cursor:pointer;transition:all .15s;
+}
+.sp-result-item:hover{border-color:var(--navy);box-shadow:var(--shadow-sm)}
+.sp-path{font-size:10px;color:var(--enjii);font-weight:600;margin-bottom:3px;letter-spacing:.04em}
+.sp-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:3px}
+.sp-snip{font-size:12.5px;color:var(--text-2);line-height:1.6}
+
+.ai-answer-box{
+  background:linear-gradient(135deg,rgba(26,39,68,.05),rgba(139,26,44,.03));
+  border:1.5px solid rgba(26,39,68,.12);
+  border-radius:var(--r);padding:18px 20px;margin-bottom:16px;
+}
+[data-theme="dark"] .ai-answer-box{background:rgba(26,39,68,.2);border-color:rgba(100,130,200,.18)}
+.ai-answer-label{
+  font-size:10px;font-weight:700;color:var(--enjii);
+  letter-spacing:.12em;margin-bottom:8px;
+  display:flex;align-items:center;gap:7px;
+}
+.ai-dot-spin{
+  width:7px;height:7px;border-radius:50%;background:var(--enjii);
+  animation:aiP 2s ease-in-out infinite;
+}
+@keyframes aiP{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.75)}}
+.ai-answer-text{font-size:13.5px;color:var(--text-2);line-height:1.8}

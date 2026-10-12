@@ -2,22 +2,23 @@
  * src/line_callback.js
  * LINE Login チャネルのコールバック処理
  *
- * LINE Developers Console の「コールバックURL」に登録する値:
- *   https://mito1-tetyo.tech/line-callback.html
- *   http://localhost:5173/line-callback.html （ローカル開発用・任意）
+ * どのブラウザ/タブ/アプリで開かれてもよい（PWA/別タブ分断対応）:
+ *   - ログイン不要（Firebase Auth を待たない）
+ *   - sessionStorage 不要（state 照合はしない）
+ *   - やることは「LINE の userId を取得して lineLinkSessions/{state} に
+ *     status:'done' とプロフィールを書き込む」だけ。
+ *   users/{uid} への保存（連携確定）は元のタブ/PWA側が行うため、
+ *   ここでユーザーを特定する必要がない。
  *
  * 流れ:
  *   1. クエリの error / code & state を確認
- *   2. sessionStorage に保存した state と一致するか検証（CSRF対策）
- *   3. Firebase Auth のログイン状態を確認（連携先アカウントの特定に必須）
- *   4. Workers /line/exchange に code を渡して LINE の userId を取得
- *   5. users/{uid} に lineUserId を保存して完了表示
+ *   2. Workers /line/exchange に code を渡して LINE の userId を取得
+ *   3. lineLinkSessions/{state} を done に更新
+ *   4. 完了表示してウィンドウを閉じる
  */
-import { onAuth } from './auth.js'
-import {
-  consumeStoredState, consumeReturnTo,
-  exchangeCodeForProfile, saveLineLink,
-} from './line.js'
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { db } from './firebase.js'
+import { exchangeCodeForProfile } from './line.js'
 
 const card = document.getElementById('card')
 
@@ -37,43 +38,41 @@ function renderError(title, detail, showRetry = true) {
   `
 }
 
-function renderSuccess(profile, returnTo) {
-  const avatar = profile.pictureUrl
-    ? `<img src="${esc(profile.pictureUrl)}" alt="">`
-    : `<div style="width:44px;height:44px;border-radius:50%;background:var(--line);display:flex;align-items:center;justify-content:center">${LINE_ICON.replace('width:40px', '')}</div>`
-
+function renderDone() {
   card.innerHTML = `
     <div class="line-mark">${LINE_ICON}</div>
     <div class="badge-ok">✓ 連携完了</div>
     <div class="ttl">LINE連携が完了しました</div>
     <div class="sub">
-      これから公欠申請の承認完了などのお知らせを<br>LINEでお届けします。
+      この画面は閉じてかまいません。<br>
+      生徒手帳アプリの画面で連携完了の確認ができます。
     </div>
-    <div class="profile">
-      ${avatar}
-      <div style="text-align:left">
-        <div class="pname">${esc(profile.displayName || 'LINEアカウント')}</div>
-        <div class="pmeta">このアカウントと連携しました</div>
-      </div>
-    </div>
-    <div class="sub" style="font-size:11.5px">
-      通知を受け取るには、公式アカウントを友だち追加したままにしてください。<br>
-      連携はマイページからいつでも解除できます。
-    </div>
-    <a class="btn btn-primary" href="${esc(returnTo)}">マイページへ戻る</a>
   `
 }
 
-function renderLoginRequired() {
+/**
+ * 再読み込み（リトライ）等で「すでに処理済み」と判別できるケースを扱う。
+ * - Firestore の権限エラー: セッションが consumed/cancelled 済み
+ * - LINE 側 invalid_grant: 認可コードが使い回し
+ */
+function renderAlreadyProcessed() {
   card.innerHTML = `
-    <div class="line-mark" style="background:var(--navy)">${LINE_ICON}</div>
-    <div class="ttl">ログインが必要です</div>
+    <div class="line-mark">${LINE_ICON}</div>
+    <div class="badge-ok">✓ 連携済み</div>
+    <div class="ttl">この連携はすでに処理されています</div>
     <div class="sub">
-      LINE連携は生徒手帳のアカウントに紐づけて行います。<br>
-      ログインしてから、マイページの連携バナーをタップしてください。
+      アプリの画面に戻って、マイページの連携状況を確認してください。<br>
+      この画面は閉じてかまいません。
     </div>
-    <a class="btn btn-primary" href="/auth.html">ログイン</a>
   `
+}
+
+function isAlreadyProcessedError(e) {
+  const code = e?.code || ''
+  const msg  = String(e?.message || '')
+  return code === 'permission-denied'
+    || /permission|denied/i.test(msg)
+    || /invalid_grant|already used|使われ/i.test(msg)
 }
 
 async function main() {
@@ -81,8 +80,6 @@ async function main() {
   const error  = params.get('error')
   const code   = params.get('code')
   const state  = params.get('state')
-  const storedState = consumeStoredState()
-  const returnTo    = consumeReturnTo() || '/#mypage'
 
   // --- ユーザーが認可をキャンセルした / LINE 側エラー ---
   if (error) {
@@ -97,48 +94,35 @@ async function main() {
     return
   }
 
-  if (!code) {
+  if (!code || !state) {
     renderError('リンクが無効です',
       '認可コードが見つかりません。マイページの連携バナーから改めてお試しください。')
     return
   }
 
-  // --- state 検証（CSRF対策） ---
-  if (!storedState || !state || storedState !== state) {
-    renderError('セキュリティ検証に失敗しました',
-      'リクエストの照合に失敗しました（state不一致）。<br>' +
-      'ブラウザのタブを開き直した場合などに発生します。マイページから改めて連携してください。')
-    return
-  }
-
-  // --- Firebase Auth のログイン状態を待つ ---
-  const user = await new Promise(resolve => {
-    let settled = false
-    const unsub = onAuth(u => {
-      if (settled) return
-      settled = true
-      try { unsub() } catch { /* noop */ }
-      resolve(u)
-    })
-    setTimeout(() => {
-      if (!settled) { settled = true; resolve(null) }
-    }, 8000)
-  })
-
-  if (!user) {
-    renderLoginRequired()
-    return
-  }
-
   // --- 認可コード → アクセストークン → LINEプロフィール（Workers 経由） ---
+  // ログイン不要。state はセッションdocのIDとして使うだけ（capability方式）。
   try {
     const profile = await exchangeCodeForProfile(code)
-    await saveLineLink(user.uid, profile)
+    await updateDoc(doc(db, 'lineLinkSessions', state), {
+      status:      'done',
+      lineUserId:  profile.userId,
+      displayName: profile.displayName || '',
+      pictureUrl:  profile.pictureUrl  || '',
+      completedAt: serverTimestamp(),
+    })
     // 認可コードを URL から消す（再読み込みでの二重使用を防ぐ）
     history.replaceState(null, '', location.pathname)
-    renderSuccess(profile, returnTo)
+    renderDone()
+    // ウィンドウを閉じられる（popup等）なら閉じる。閉じられない場合は手動でOK。
+    try { setTimeout(() => window.close(), 1500) } catch { /* noop */ }
   } catch (e) {
-    renderError('LINE連携に失敗しました', esc(e?.message || String(e)))
+    console.error('[line_callback] failed:', e)
+    if (isAlreadyProcessedError(e)) {
+      renderAlreadyProcessed()
+    } else {
+      renderError('LINE連携に失敗しました', esc(e?.message || String(e)))
+    }
   }
 }
 

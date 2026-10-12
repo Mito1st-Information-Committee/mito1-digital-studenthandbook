@@ -10,9 +10,30 @@
 
   gtag('config', 'G-C0CFLJ03F6');
 </script>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4414301960233587" crossorigin="anonymous"></script>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
-<meta name="theme-color" content="#1a2744">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-visual">
+<meta name="theme-color" content="#1a2744" id="themeColorMeta">
+<meta name="color-scheme" content="light dark">
+<script>
+/* ダークモード自動判別（Issue #103）
+   ページ本体の描画より前に html[data-theme] と PWA のステータスバー色を確定させるための初期適用。
+   ここで確定させておかないと、端末がダークモードのときだけ最初の1コマが
+   ライトのままちらつく。実際の見た目の切替は CSS（tokens.css の [data-theme="dark"]）が
+   担当するので、ここでは属性を立てるだけ。判定ルールと色は src/theme.js と同一
+   （src/theme.js は module なので head で同期実行できず、色だけインラインに持つ）。 */
+(function(){
+  try{
+    var s = localStorage.getItem('mito1_theme');
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var dark = (s === 'dark') || ((s !== 'light') && prefersDark);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    // ステータスバー色も同時に合わせる（module 側の applyTheme() は描画後なので初回だけ不一致になる）
+    var meta = document.getElementById('themeColorMeta');
+    if (meta) meta.setAttribute('content', dark ? '#0e0e11' : '#1a2744');
+  }catch(e){ /* localStorage が使えない環境（プライベートモード等）でも描画は続行する */ }
+})();
+</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -24,1231 +45,13 @@
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;600&display=swap" rel="stylesheet">
-<style>
-/* ===========================
-   VARIABLES
-=========================== */
-:root {
-  --navy: #1a2744;
-  --navy-mid: #1e3060;
-  --navy-light: #253a78;
-  --navy-dim: rgba(26,39,68,0.07);
-  --enjii: #8b1a2c;
-  --enjii-bg: rgba(139,26,44,0.08);
-  --bg: #f6f6f4;
-  --surface: #ffffff;
-  --surface2: #f0f0ed;
-  --text: #111111;
-  --text-2: #444444;
-  --text-3: #888888;
-  --border: #e2e2de;
-  --border-2: #eeeee9;
-  --shadow-sm: 0 1px 4px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md: 0 4px 16px rgba(0,0,0,0.09),0 2px 4px rgba(0,0,0,0.05);
-  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12),0 2px 8px rgba(0,0,0,0.06);
-  --r: 10px;
-  --r-lg: 14px;
-  --header-h: 58px;
-  --sidebar-w: 256px;
-  --bn-h: 62px;
-  --safe-t: env(safe-area-inset-top,0px);
-  --safe-b: env(safe-area-inset-bottom,0px);
-  --safe-l: env(safe-area-inset-left,0px);
-  --safe-r: env(safe-area-inset-right,0px);
-}
-[data-theme="dark"] {
-  --bg: #0e0e11;
-  --surface: #18181d;
-  --surface2: #202026;
-  --text: #e4e4e0;
-  --text-2: #989894;
-  --text-3: #565656;
-  --border: #2a2a32;
-  --border-2: #222228;
-  --navy-dim: rgba(80,110,200,0.1);
-  --enjii-bg: rgba(139,26,44,0.18);
-}
-
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html{scroll-behavior:smooth}
-body{
-  font-family:'Noto Sans JP',sans-serif;
-  background:var(--bg);color:var(--text);
-  line-height:1.75;-webkit-font-smoothing:antialiased;
-  overflow-x:hidden;
-}
-button,input,textarea{font-family:'Noto Sans JP',sans-serif}
-a{text-decoration:none;color:inherit}
-
-/* ===========================
-   LOADING — シネマティック版
-=========================== */
-#loading{
-  position:fixed;inset:0;
-  background:#080e1c;
-  z-index:9999;
-  display:flex;flex-direction:column;
-  align-items:center;justify-content:center;
-  overflow:hidden;
-}
-
-/* 背景の格子テクスチャ */
-#loading::before{
-  content:'';position:absolute;inset:0;
-  background-image:
-    linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
-  background-size:44px 44px;
-  animation:gridFade 3s ease forwards;
-}
-@keyframes gridFade{0%{opacity:0}30%{opacity:1}85%{opacity:1}100%{opacity:0}}
-
-/* 左上・右下の角の輝き */
-#loading::after{
-  content:'';position:absolute;
-  width:300px;height:300px;
-  background:radial-gradient(circle,rgba(139,26,44,.18) 0%,transparent 70%);
-  bottom:-80px;right:-80px;
-  animation:glowPulse 3s ease-in-out infinite;
-}
-@keyframes glowPulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.15)}}
-
-.load-stage{
-  display:flex;flex-direction:column;
-  align-items:center;gap:0;
-  position:relative;z-index:1;
-}
-
-/* 校章画像 */
-.load-crest-img{
-  width:80px;height:80px;margin-bottom:28px;
-  object-fit:contain;
-  position:relative;z-index:2;
-  animation:crestAppear .6s ease .1s both;
-}
-@keyframes crestAppear{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
-
-/* 学校名 — 縦書き風スタック */
-.load-school-wrap{
-  display:flex;flex-direction:column;align-items:center;gap:6px;
-  margin-bottom:28px;
-}
-.load-pref{
-  font-size:10px;font-weight:400;
-  color:rgba(255,255,255,.38);letter-spacing:.28em;
-  opacity:0;animation:slideUp .5s ease .9s forwards;
-}
-.load-name{
-  font-family:'Noto Serif JP',serif;font-weight:700;
-  color:rgba(255,255,255,.92);
-  letter-spacing:.14em;
-  display:flex;gap:0;
-}
-/* 各文字を順番に */
-.load-char{
-  display:inline-block;opacity:0;
-  transform:translateY(12px);
-  animation:charIn .4s cubic-bezier(.2,0,0,1) both;
-}
-.load-name-main { font-size:22px; }
-.load-name-sub  { font-size:16px; margin-top:6px; }
-
-.load-sub-text{
-  font-size:11px;color:rgba(255,255,255,.42);
-  letter-spacing:.3em;margin-top:2px;
-  opacity:0;animation:slideUp .5s ease 1.5s forwards;
-}
-@keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-@keyframes charIn{to{opacity:1;transform:translateY(0)}}
-
-/* 区切り線 */
-.load-divider{
-  width:0;height:1px;
-  background:linear-gradient(to right,transparent,rgba(255,255,255,.25),transparent);
-  margin:18px 0;
-  animation:divGrow .7s cubic-bezier(.4,0,.2,1) 1.4s forwards;
-}
-@keyframes divGrow{to{width:220px}}
-
-/* プログレスバー */
-.load-progress-wrap{
-  width:200px;height:1.5px;
-  background:rgba(255,255,255,.08);
-  border-radius:2px;overflow:hidden;
-  opacity:0;animation:fadeIn .4s ease 1.3s forwards;
-}
-@keyframes fadeIn{to{opacity:1}}
-.load-progress-fill{
-  height:100%;width:0;
-  background:linear-gradient(to right,var(--enjii),#d63650);
-  animation:progressRun 2s cubic-bezier(.4,0,.2,1) 1.4s forwards;
-}
-@keyframes progressRun{0%{width:0%}50%{width:55%}80%{width:85%}100%{width:100%}}
-
-#loading.hide{
-  animation:loadOut .55s cubic-bezier(.4,0,1,1) forwards;
-}
-@keyframes loadOut{
-  0%{opacity:1;transform:scale(1)}
-  100%{opacity:0;transform:scale(1.04);pointer-events:none}
-}
-
-/* ===========================
-   APP SHELL
-=========================== */
-#app{opacity:0;transition:opacity .4s ease}
-#app.show{opacity:1}
-
-/* ===========================
-   HEADER
-=========================== */
-.header{
-  position:fixed;top:0;left:0;right:0;
-  height:var(--header-h);
-  background:rgba(255,255,255,.9);
-  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
-  border-bottom:1px solid var(--border);
-  z-index:200;display:flex;align-items:center;
-  padding:0 14px;gap:10px;
-  transition:background .3s,border-color .3s;
-}
-[data-theme="dark"] .header{background:rgba(14,14,17,.92)}
-
-.menu-btn{
-  width:36px;height:36px;border:none;background:none;
-  border-radius:7px;cursor:pointer;
-  display:none;align-items:center;justify-content:center;
-  flex-direction:column;gap:4.5px;padding:9px;
-  color:var(--text-2);flex-shrink:0;
-}
-.menu-btn span{display:block;width:17px;height:1.5px;background:currentColor;border-radius:1px;transition:all .25s}
-
-.header-brand{
-  display:flex;align-items:center;gap:9px;
-  cursor:pointer;flex-shrink:0;
-}
-.brand-crest{
-  width:31px;height:31px;border-radius:50%;flex-shrink:0;
-  object-fit:contain;
-}
-.brand-names{display:flex;flex-direction:column}
-.brand-main{
-  font-family:'Noto Serif JP',serif;font-size:13px;font-weight:600;
-  color:var(--navy);line-height:1.2;
-}
-[data-theme="dark"] .brand-main{color:var(--text)}
-.brand-sub{font-size:9.5px;color:var(--text-3)}
-
-/* Search */
-.search-wrap{flex:1;position:relative;max-width:460px;margin:0 auto}
-.search-input{
-  width:100%;height:36px;background:var(--surface2);
-  border:1.5px solid var(--border);border-radius:8px;
-  padding:0 44px 0 34px;
-  font-size:13px;color:var(--text);outline:none;
-  transition:all .2s;
-}
-.search-input::placeholder{color:var(--text-3)}
-.search-input:focus{
-  border-color:var(--navy);background:var(--surface);
-  box-shadow:0 0 0 3px rgba(26,39,68,.07);
-}
-[data-theme="dark"] .search-input:focus{box-shadow:0 0 0 3px rgba(26,39,68,.35)}
-.search-icon-left{
-  position:absolute;left:10px;top:50%;transform:translateY(-50%);
-  color:var(--text-3);pointer-events:none;
-}
-.search-icon-left svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
-.search-submit-btn{
-  position:absolute;right:6px;top:50%;transform:translateY(-50%);
-  width:26px;height:26px;border:none;background:none;
-  cursor:pointer;color:var(--text-3);display:flex;align-items:center;justify-content:center;
-  border-radius:5px;transition:background .15s,color .15s;
-}
-.search-submit-btn:hover{background:var(--navy-dim);color:var(--navy)}
-.search-submit-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.5}
-
-/* Search dropdown */
-.search-dd{
-  position:absolute;top:calc(100% + 8px);left:0;right:0;
-  background:var(--surface);border:1.5px solid var(--border);
-  border-radius:var(--r-lg);box-shadow:var(--shadow-lg);
-  z-index:300;display:none;overflow:hidden;
-}
-.search-dd.open{display:block;animation:dropIn .18s ease}
-@keyframes dropIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
-.sd-results{max-height:280px;overflow-y:auto;padding:6px}
-.sd-item{padding:10px 12px;border-radius:7px;cursor:pointer;transition:background .12s}
-.sd-item:hover{background:var(--surface2)}
-.sd-path{font-size:10px;color:var(--enjii);margin-bottom:2px;font-weight:600;letter-spacing:.04em}
-.sd-title{font-size:13px;font-weight:500;color:var(--text)}
-.sd-snip{font-size:11.5px;color:var(--text-3);margin-top:1px}
-.sd-no-result{
-  padding:18px 14px;text-align:center;font-size:13px;color:var(--text-3);
-}
-.sd-ai-link{
-  margin-top:10px;padding:8px 16px;background:var(--navy);color:white;
-  border:none;border-radius:7px;font-size:12.5px;cursor:pointer;
-  display:inline-block;transition:background .15s;
-}
-.sd-ai-link:hover{background:var(--navy-light)}
-
-.header-actions{display:flex;gap:4px;flex-shrink:0}
-.hdr-btn{
-  width:34px;height:34px;border:none;background:none;
-  border-radius:7px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-  color:var(--text-2);transition:background .12s,color .12s;
-}
-.hdr-btn:hover{background:var(--surface2);color:var(--text)}
-.hdr-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8}
-
-/* ===========================
-   LAYOUT
-   注意: マークアップに .layout ラッパーは存在しない（sidebar / main が直下要素）。
-   したがって上部オフセットは .layout ではなく .main 側で管理すること。
-   （2026-09: 存在しない .layout への指定が #17 のPWA表示崩れの原因だった）
-=========================== */
-
-/* ===========================
-   SIDEBAR
-=========================== */
-.sidebar{
-  width:var(--sidebar-w);flex-shrink:0;
-  position:fixed;top:var(--header-h);left:0;bottom:0;
-  overflow-y:auto;overflow-x:hidden;
-  padding:18px 10px 24px;
-  border-right:1px solid var(--border);
-  background:var(--surface);z-index:180;
-  transition:transform .3s cubic-bezier(.4,0,.2,1),background .3s;
-  scrollbar-width:thin;scrollbar-color:var(--border) transparent;
-}
-.sb-section{margin-bottom:20px}
-.sb-label{
-  font-size:9.5px;font-weight:700;letter-spacing:.14em;
-  color:var(--text-3);padding:0 10px;margin-bottom:3px;text-transform:uppercase;
-}
-.sb-item{
-  display:flex;align-items:center;gap:8px;
-  padding:8px 10px;border-radius:7px;
-  font-size:13.5px;color:var(--text-2);
-  cursor:pointer;transition:background .12s,color .12s;
-  position:relative;border:none;background:none;
-  width:100%;text-align:left;
-}
-.sb-item:hover{background:var(--surface2);color:var(--text)}
-.sb-item.on{background:var(--navy-dim);color:var(--navy);font-weight:500}
-[data-theme="dark"] .sb-item.on{color:var(--text)}
-.sb-item.on::before{
-  content:'';position:absolute;left:0;top:22%;bottom:22%;
-  width:3px;background:var(--enjii);border-radius:0 2px 2px 0;
-}
-.sb-icon{width:20px;text-align:center;flex-shrink:0;display:flex;align-items:center;justify-content:center}
-.sb-icon svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8}
-.sb-badge{
-  margin-left:auto;font-size:9px;
-  background:var(--enjii-bg);color:var(--enjii);
-  padding:1px 7px;border-radius:10px;font-weight:600;
-}
-.sb-item.dim{opacity:.38;pointer-events:none}
-.sb-dim-badge{
-  margin-left:auto;font-size:8.5px;background:var(--surface2);
-  color:var(--text-3);padding:1px 6px;border-radius:10px;border:1px solid var(--border);
-}
-.sb-sub{padding-left:34px;font-size:12.5px}
-
-.sidebar-overlay{
-  display:none;position:fixed;inset:0;
-  background:rgba(0,0,0,.38);z-index:179;
-}
-
-/* ===========================
-   BOTTOM NAVIGATION
-=========================== */
-.bottom-nav{
-  display:none;
-  position:fixed;bottom:0;left:0;right:0;
-  height:calc(var(--bn-h) + var(--safe-b));
-  padding-bottom:var(--safe-b);
-  background:rgba(255,255,255,.95);
-  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  border-top:1px solid var(--border);z-index:180;
-  transition:transform .22s cubic-bezier(.4,0,.2,1);
-  will-change:transform;
-}
-[data-theme="dark"] .bottom-nav{background:rgba(18,18,22,.97)}
-.bn-inner{display:flex;height:var(--bn-h);align-items:stretch}
-.bn-item{
-  flex:1;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:3px;
-  cursor:pointer;border:none;background:none;
-  color:var(--text-3);transition:color .15s;
-  -webkit-tap-highlight-color:transparent;padding:0;
-  min-width:0;position:relative;
-}
-.bn-item.on{color:var(--navy)}
-[data-theme="dark"] .bn-item.on{color:#8fb4ff}
-.bn-icon-wrap{
-  width:46px;height:28px;display:flex;align-items:center;justify-content:center;
-  border-radius:14px;transition:background .15s,transform .15s;
-}
-.bn-icon-wrap svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.7}
-.bn-item.on .bn-icon-wrap{
-  background:var(--navy-dim);transform:translateY(-1px);
-}
-[data-theme="dark"] .bn-item.on .bn-icon-wrap{background:rgba(100,130,220,.15)}
-.bn-label{
-  font-size:10px;font-weight:600;letter-spacing:.01em;
-  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-}
-/* 未読・件数ドット（公欠申請の進捗など） */
-.bn-dot{
-  position:absolute;top:8px;left:calc(50% + 8px);
-  width:7px;height:7px;border-radius:50%;background:var(--enjii);
-  display:none;box-shadow:0 0 0 2px var(--surface);
-}
-.bn-item.has-dot .bn-dot{display:block}
-
-/* ---------------------------------------------------
-   ソフトキーボード表示中は下部ナビを退避させる (#59)
-   visualViewport が縮むと position:fixed の bottom:0 が
-   キーボードの上に「浮き上がる」ため、退避して隠す。
-   kb-open: viewport 縮小で検知（全環境）
-   kb-focus: PWA でのテキスト入力フォーカス検知（フォールバック兼用）。
-   キーボードを閉じるアニメ中もナビを出さないよう、JS 側で
-   blur 後もしばらくクラスを維持する。
---------------------------------------------------- */
-html.kb-open .bottom-nav,
-html.pwa-mode.kb-focus .bottom-nav{
-  transform:translateY(calc(100% + var(--safe-b) + 4px));
-  pointer-events:none;
-}
-html.kb-open .ai-float,
-html.pwa-mode.kb-focus .ai-float{opacity:0;pointer-events:none}
-/* NOTE(#59): メニューシートはキーボード表示中も開ける必要がある。
-   openMore() で先に blur してキーボードを閉じるため、ここで
-   display:none にはしない（開けない/ちらつきの原因になる）。 */
-/* ナビが退避している間は下部の余白も詰めて画面を広く使う */
-html.kb-open .main,
-html.pwa-mode.kb-focus .main{padding-bottom:24px!important}
-
-/* More Sheet */
-.more-sheet{
-  position:fixed;left:0;right:0;bottom:0;
-  background:var(--surface);
-  border-radius:var(--r-lg) var(--r-lg) 0 0;
-  box-shadow:0 -8px 32px rgba(0,0,0,.15);
-  z-index:400;transform:translateY(100%);
-  transition:transform .3s cubic-bezier(.4,0,.2,1);
-  padding-bottom:var(--safe-b);
-  max-height:min(78vh,620px);
-  display:flex;flex-direction:column;
-}
-.more-sheet.open{transform:translateY(0)}
-.more-handle{
-  width:40px;height:4px;background:var(--border);border-radius:2px;
-  margin:10px auto 0;flex-shrink:0;
-}
-.more-sheet-head{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:10px 16px 8px;flex-shrink:0;border-bottom:1px solid var(--border);
-}
-.more-sheet-title{font-size:13.5px;font-weight:700;color:var(--text);letter-spacing:.02em}
-.more-close-btn{
-  width:32px;height:32px;border:none;background:var(--surface2);
-  border-radius:50%;cursor:pointer;color:var(--text-2);
-  display:flex;align-items:center;justify-content:center;
-  -webkit-tap-highlight-color:transparent;
-}
-.more-close-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2.2}
-.more-scroll{overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:10px}
-.more-sec-label{
-  font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text-3);
-  padding:14px 16px 6px;
-}
-.more-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;padding:0 8px}
-.more-item{
-  display:flex;flex-direction:column;align-items:center;gap:6px;
-  padding:12px 4px;border-radius:var(--r);cursor:pointer;
-  border:none;background:none;color:var(--text-2);
-  transition:background .12s;-webkit-tap-highlight-color:transparent;
-  min-width:0;
-}
-.more-item:hover,.more-item:active{background:var(--surface2)}
-.more-item.on{background:var(--navy-dim);color:var(--navy)}
-.more-item.on .more-lbl{color:var(--navy);font-weight:700}
-[data-theme="dark"] .more-item.on{background:rgba(100,130,220,.15);color:#8fb4ff}
-[data-theme="dark"] .more-item.on .more-lbl{color:#8fb4ff}
-.more-item.dim{opacity:.38;pointer-events:none}
-.more-item svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;flex-shrink:0}
-.more-lbl{
-  font-size:11px;font-weight:500;text-align:center;line-height:1.3;color:var(--text-2);
-  max-width:100%;overflow-wrap:anywhere;
-}
-/* よく使う（2列の大きめタイル） */
-.more-quick{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:0 12px}
-.more-quick .more-item{
-  flex-direction:row;justify-content:flex-start;gap:10px;
-  padding:13px 14px;border:1px solid var(--border);background:var(--surface2);
-}
-.more-quick .more-item.on{border-color:var(--navy);background:var(--navy-dim)}
-.more-quick .more-lbl{font-size:12.5px;font-weight:600;text-align:left}
-.more-sheet-foot{
-  padding:12px 16px calc(6px + var(--safe-b));
-  font-size:10.5px;color:var(--text-3);text-align:center;line-height:1.6;
-}
-.sheet-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:390}
-
-/* ===========================
-   MAIN CONTENT
-=========================== */
-.main{flex:1;margin-left:var(--sidebar-w);padding:32px 40px;min-width:0}
-
-/* ===========================
-   PAGES
-=========================== */
-.pg{display:none;animation:pgIn .22s ease}
-.pg.on{display:block}
-@keyframes pgIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-
-/* ===========================
-   PWA (standalone) safe-area
-   Dynamic Island / ノッチ対応
-   JSで .pwa-mode クラスを html に付与して制御
-=========================== */
-.pwa-mode .header{
-  height:calc(var(--header-h) + var(--safe-t));
-  padding-top:var(--safe-t);
-}
-/* #17: .layout 要素は存在しないため、コンテンツの上部オフセットは .main に直接指定する。
-   （ヘッダー実高さ = --header-h + --safe-t と一致させ、ページ上部の隠れを防ぐ） */
-.pwa-mode .main{padding-top:calc(var(--header-h) + var(--safe-t))}
-.pwa-mode .sidebar{top:calc(var(--header-h) + var(--safe-t))}
-
-.pg-header{margin-bottom:24px;padding-top:40px;padding-bottom:18px;border-bottom:1.5px solid var(--border)}
-.breadcrumb{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-3);margin-bottom:8px}
-.breadcrumb span{cursor:pointer;transition:color .12s}
-.breadcrumb span:hover{color:var(--enjii)}
-.breadcrumb-sep{opacity:.4}
-.pg-title{font-family:'Noto Serif JP',serif;font-size:21px;font-weight:600;color:var(--text);margin-bottom:5px}
-.pg-meta{font-size:11.5px;color:var(--text-3);display:flex;gap:14px;flex-wrap:wrap}
-
-/* ===========================
-   HOME PAGE
-=========================== */
-.home-wrap{max-width:900px;margin:0 auto;padding:80px 0 20px}
-
-.home-brand{text-align:center;margin-bottom:44px}
-.home-book{
-  width:100px;height:144px;margin:0 auto 22px;
-  background:linear-gradient(148deg,#1e3a6e 0%,#1a2744 48%,#0c1628 100%);
-  border-radius:2px 9px 9px 2px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:8px;padding:14px 12px;
-  box-shadow:-2px 0 0 rgba(0,0,0,.3),var(--shadow-lg);
-  border-left:3px solid rgba(0,0,0,.3);
-  animation:homeFloat 5s ease-in-out infinite;position:relative;overflow:hidden;
-}
-.home-book::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.04) 0%,transparent 55%)}
-@keyframes homeFloat{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-6px) rotate(-.5deg)}}
-.hb-crest{
-  width:38px;height:38px;border-radius:50%;
-  object-fit:contain;
-  position:relative;z-index:2;
-}
-.hb-ttl{
-  font-family:'Noto Serif JP',serif;font-size:9.5px;font-weight:600;
-  color:rgba(255,255,255,.95);letter-spacing:.2em;text-align:center;
-  position:relative;z-index:1;
-}
-.hb-div{width:50%;height:1px;background:rgba(255,255,255,.2);position:relative;z-index:1}
-.hb-school{font-size:6.5px;color:rgba(255,255,255,.7);text-align:center;line-height:1.9;position:relative;z-index:1}
-.home-headline{font-family:'Noto Serif JP',serif;font-size:20px;font-weight:600;color:var(--text);margin-bottom:3px}
-.home-sub{font-size:12px;color:var(--text-3);letter-spacing:.06em}
-
-/* Category grid — explicit named areas, no auto-placement surprises */
-.cat-grid{
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  grid-template-areas:
-    "rules    events   council"
-    "curric   curric   songs"
-    "about    about    about";
-  gap:13px;
-}
-.cat-card-rules     { grid-area:rules; }
-.cat-card-events    { grid-area:events; }
-.cat-card-council   { grid-area:council; }
-.cat-card-curriculum{ grid-area:curric; }
-.cat-card-songs     { grid-area:songs; }
-.cat-card-about     { grid-area:about; }
-
-.cat-card{
-  position:relative;border-radius:12px;overflow:hidden;
-  cursor:pointer;
-  min-height:130px;
-  transition:transform .2s,box-shadow .2s;
-  box-shadow:var(--shadow-sm);
-}
-.cat-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-md)}
-.cat-card:active{transform:translateY(-1px)}
-
-/* Card backgrounds */
-.cat-card-rules     {background:linear-gradient(135deg,#1a2744 0%,#1e3568 100%)}
-.cat-card-events    {background:linear-gradient(135deg,#1e3568 0%,#2a4a82 100%)}
-.cat-card-curriculum{background:linear-gradient(135deg,#0f1e3a 0%,#1a2f5a 100%)}
-.cat-card-council   {background:linear-gradient(135deg,#6b1222 0%,#8b1a2c 100%)}
-.cat-card-about     {background:linear-gradient(135deg,#1a2744 0%,#2d3d5e 100%)}
-.cat-card-songs     {background:linear-gradient(135deg,#2a1a44 0%,#3a2060 100%)}
-
-/* Decorative circles */
-.cat-card::before{
-  content:'';position:absolute;right:-20px;bottom:-20px;
-  width:100px;height:100px;border-radius:50%;
-  background:rgba(255,255,255,.05);pointer-events:none;
-}
-.cat-card::after{
-  content:'';position:absolute;right:20px;top:-30px;
-  width:70px;height:70px;border-radius:50%;
-  background:rgba(255,255,255,.04);pointer-events:none;
-}
-.cat-card-council::before{background:rgba(255,255,255,.07)}
-
-.cat-card-inner{
-  position:relative;z-index:1;
-  width:100%;height:100%;
-  padding:18px 18px 16px;
-  display:flex;flex-direction:column;
-  justify-content:space-between;
-  min-height:inherit;
-  box-sizing:border-box;
-}
-
-/* curric & about: 横レイアウト (デスクトップ) */
-.cat-card-curriculum .cat-card-inner,
-.cat-card-about .cat-card-inner {
-  flex-direction:row;align-items:center;gap:20px;min-height:110px;
-}
-.cat-card-curriculum .cat-text,
-.cat-card-about .cat-text { flex:1;min-width:0; }
-.cat-card-curriculum .cat-card-line,
-.cat-card-about .cat-card-line {
-  margin-bottom:0;align-self:flex-start;margin-top:4px;flex-shrink:0;
-}
-
-.cat-card-line{
-  width:28px;height:2px;background:rgba(255,255,255,.4);border-radius:1px;
-  margin-bottom:8px;flex-shrink:0;
-}
-.cat-card-title{
-  font-family:'Noto Serif JP',serif;font-size:15px;font-weight:600;
-  color:white;line-height:1.5;
-  word-break:keep-all;overflow-wrap:break-word;
-}
-.cat-card-sub{
-  font-size:10.5px;color:rgba(255,255,255,.6);margin-top:4px;letter-spacing:.04em;
-  line-height:1.5;
-}
-.cat-card-arrow{
-  display:flex;align-items:center;font-size:10px;
-  color:rgba(255,255,255,.5);gap:4px;margin-top:auto;flex-shrink:0;
-}
-.cat-card-curriculum .cat-card-arrow,
-.cat-card-about .cat-card-arrow { margin-top:10px; }
-.cat-card-arrow svg{
-  width:12px;height:12px;stroke:rgba(255,255,255,.5);
-  fill:none;stroke-width:2;transition:transform .18s;flex-shrink:0;
-}
-.cat-card:hover .cat-card-arrow svg{transform:translateX(3px)}
-
-/* ===========================
-   SEARCH PAGE
-=========================== */
-.search-page-wrap{max-width:700px;margin:0 auto;min-width:0}
-.search-page-bar{
-  display:flex;gap:8px;margin-bottom:20px;align-items:center;
-  flex-wrap:wrap;
-}
-.search-bar-wrap{position:relative;flex:1;min-width:0}
-.search-page-input{
-  width:100%;height:44px;background:var(--surface);
-  border:1.5px solid var(--border);border-radius:9px;
-  padding:0 16px 0 42px;font-size:14px;color:var(--text);outline:none;
-  transition:all .2s;box-sizing:border-box;
-}
-.search-page-input:focus{border-color:var(--navy);box-shadow:0 0 0 3px rgba(26,39,68,.07)}
-.search-page-icon{
-  position:absolute;left:14px;top:50%;transform:translateY(-50%);
-  color:var(--text-3);pointer-events:none;
-}
-.search-page-icon svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
-
-.search-toggle{
-  display:flex;background:var(--surface2);border-radius:8px;
-  border:1.5px solid var(--border);overflow:hidden;flex-shrink:0;
-}
-.stoggle{
-  padding:9px 12px;border:none;background:none;
-  font-size:12px;font-weight:500;color:var(--text-3);cursor:pointer;
-  transition:all .15s;white-space:nowrap;
-}
-.stoggle.on{background:var(--navy);color:white}
-
-.search-page-results{margin-top:4px}
-.sp-result-item{
-  padding:14px 16px;background:var(--surface);
-  border:1.5px solid var(--border);border-radius:var(--r);
-  margin-bottom:10px;cursor:pointer;transition:all .15s;
-}
-.sp-result-item:hover{border-color:var(--navy);box-shadow:var(--shadow-sm)}
-.sp-path{font-size:10px;color:var(--enjii);font-weight:600;margin-bottom:3px;letter-spacing:.04em}
-.sp-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:3px}
-.sp-snip{font-size:12.5px;color:var(--text-2);line-height:1.6}
-
-.ai-answer-box{
-  background:linear-gradient(135deg,rgba(26,39,68,.05),rgba(139,26,44,.03));
-  border:1.5px solid rgba(26,39,68,.12);
-  border-radius:var(--r);padding:18px 20px;margin-bottom:16px;
-}
-[data-theme="dark"] .ai-answer-box{background:rgba(26,39,68,.2);border-color:rgba(100,130,200,.18)}
-.ai-answer-label{
-  font-size:10px;font-weight:700;color:var(--enjii);
-  letter-spacing:.12em;margin-bottom:8px;
-  display:flex;align-items:center;gap:7px;
-}
-.ai-dot-spin{
-  width:7px;height:7px;border-radius:50%;background:var(--enjii);
-  animation:aiP 2s ease-in-out infinite;
-}
-@keyframes aiP{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.75)}}
-.ai-answer-text{font-size:13.5px;color:var(--text-2);line-height:1.8}
-
-/* AI Markdown Styles */
-.ai-answer-text p, .ai-msg.bot .ai-bubble p { margin: 0 0 8px 0; }
-.ai-answer-text p:last-child, .ai-msg.bot .ai-bubble p:last-child { margin-bottom: 0; }
-
-.ai-answer-text h1, .ai-answer-text h2 { font-size: 15px; font-weight: 700; color: var(--navy); margin: 12px 0 6px; }
-.ai-answer-text h3, .ai-answer-text h4, .ai-answer-text h5, .ai-answer-text h6 { font-size: 14px; font-weight: 600; color: var(--navy); margin: 10px 0 4px; }
-.ai-msg.bot .ai-bubble h1, .ai-msg.bot .ai-bubble h2 { font-size: 13.5px; font-weight: 700; color: var(--navy); margin: 8px 0 4px; }
-.ai-msg.bot .ai-bubble h3, .ai-msg.bot .ai-bubble h4, .ai-msg.bot .ai-bubble h5, .ai-msg.bot .ai-bubble h6 { font-size: 13px; font-weight: 600; color: var(--navy); margin: 6px 0 3px; }
-
-[data-theme="dark"] .ai-answer-text h1, [data-theme="dark"] .ai-answer-text h2,
-[data-theme="dark"] .ai-answer-text h3, [data-theme="dark"] .ai-answer-text h4,
-[data-theme="dark"] .ai-msg.bot .ai-bubble h1, [data-theme="dark"] .ai-msg.bot .ai-bubble h2,
-[data-theme="dark"] .ai-msg.bot .ai-bubble h3, [data-theme="dark"] .ai-msg.bot .ai-bubble h4 { color: #8fb4ff; }
-
-.ai-answer-text ul, .ai-answer-text ol, .ai-msg.bot .ai-bubble ul, .ai-msg.bot .ai-bubble ol { margin: 6px 0 8px 0; padding-left: 20px; }
-.ai-answer-text li, .ai-msg.bot .ai-bubble li { margin-bottom: 3px; }
-
-.ai-answer-text strong, .ai-msg.bot .ai-bubble strong { font-weight: 700; color: var(--text); }
-
-.ai-answer-text code, .ai-msg.bot .ai-bubble code { font-family: SFMono-Regular, Consolas, monospace; font-size: 0.88em; background: rgba(26,39,68,0.08); padding: 2px 5px; border-radius: 4px; color: var(--navy); }
-[data-theme="dark"] .ai-answer-text code, [data-theme="dark"] .ai-msg.bot .ai-bubble code { background: rgba(255,255,255,0.12); color: #8fb4ff; }
-
-.ai-answer-text pre, .ai-msg.bot .ai-bubble pre { background: var(--bg); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
-.ai-answer-text pre code, .ai-msg.bot .ai-bubble pre code { background: transparent; padding: 0; border-radius: 0; display: block; color: var(--text); }
-
-.ai-answer-text blockquote, .ai-msg.bot .ai-bubble blockquote { border-left: 3px solid var(--enjii); margin: 8px 0; padding: 4px 0 4px 10px; color: var(--text-2); background: rgba(139,26,44,0.04); border-radius: 0 4px 4px 0; }
-
-.ai-answer-text table, .ai-msg.bot .ai-bubble table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; display: block; overflow-x: auto; }
-.ai-answer-text th, .ai-answer-text td, .ai-msg.bot .ai-bubble th, .ai-msg.bot .ai-bubble td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
-.ai-answer-text th, .ai-msg.bot .ai-bubble th { background: var(--surface2); font-weight: 600; color: var(--text); }
-
-.ai-answer-text a, .ai-msg.bot .ai-bubble a { color: var(--navy); text-decoration: underline; font-weight: 500; word-break: break-all; }
-[data-theme="dark"] .ai-answer-text a, [data-theme="dark"] .ai-msg.bot .ai-bubble a { color: #8fb4ff; }
-
-.ai-answer-text hr, .ai-msg.bot .ai-bubble hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
-
-.search-empty{
-  text-align:center;padding:40px 20px;
-}
-.search-empty-title{font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px}
-.search-empty-sub{font-size:13px;color:var(--text-3);margin-bottom:18px}
-.btn-navy{
-  display:inline-flex;align-items:center;gap:7px;
-  padding:10px 20px;background:var(--navy);color:white;
-  border:none;border-radius:8px;font-size:13px;cursor:pointer;
-  transition:background .15s;
-}
-.btn-navy:hover{background:var(--navy-light)}
-.btn-navy svg{width:14px;height:14px;stroke:white;fill:none;stroke-width:2}
-
-.typing-dots{display:flex;gap:4px;align-items:center;padding:3px 0}
-.tdot{width:6px;height:6px;border-radius:50%;background:var(--text-3);animation:td 1.2s ease-in-out infinite}
-.tdot:nth-child(2){animation-delay:.2s}.tdot:nth-child(3){animation-delay:.4s}
-@keyframes td{0%,80%,100%{transform:scale(.8);opacity:.3}40%{transform:scale(1.1);opacity:1}}
-
-/* ===========================
-   CONTENT CARDS
-=========================== */
-.card{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:26px 30px;margin-bottom:18px}
-.card-h2{
-  font-family:'Noto Serif JP',serif;font-size:16px;font-weight:600;
-  color:var(--text);margin-bottom:16px;padding-bottom:10px;
-  border-bottom:1px solid var(--border);
-  display:flex;align-items:center;gap:8px;
-}
-.card-h2::before{content:'';width:3px;height:16px;background:var(--enjii);border-radius:2px;flex-shrink:0}
-.card-body{font-size:14px;color:var(--text-2);line-height:2.0}
-.card-body p{margin-bottom:14px}
-.card-body p:last-child{margin-bottom:0}
-
-/* ===========================
-   HISTORY (沿革)
-=========================== */
-.history-list{list-style:none}
-.history-item{
-  display:flex;gap:16px;padding:6px 0;
-  border-bottom:1px solid var(--border-2);font-size:13.5px;
-}
-.history-item:last-child{border-bottom:none}
-.history-year{
-  min-width:140px;flex-shrink:0;
-  color:var(--text-3);font-size:12.5px;
-  font-family:'Noto Sans JP',sans-serif;
-  padding-top:1px;letter-spacing:.01em;
-}
-.history-item:first-child .history-year{color:var(--enjii);font-weight:600}
-.history-event{color:var(--text-2);line-height:1.7}
-
-/* ===========================
-   PRINCIPALS (歴代校長)
-=========================== */
-.principals-list{list-style:none}
-.principal-item{
-  display:grid;
-  grid-template-columns:40px 1fr 1fr;
-  gap:8px;padding:8px 0;
-  border-bottom:1px solid var(--border-2);font-size:13.5px;
-  align-items:baseline;
-}
-.principal-item:last-child{border-bottom:none}
-.principal-gen{
-  font-size:11px;color:var(--enjii);font-weight:700;
-  background:var(--enjii-bg);padding:1px 6px;border-radius:4px;
-  text-align:center;white-space:nowrap;align-self:center;
-}
-.principal-name{font-weight:500;color:var(--text)}
-.principal-term{font-size:12px;color:var(--text-3)}
-
-/* ===========================
-   RULES (条文形式)
-=========================== */
-.rules-wrap{display:grid;grid-template-columns:210px 1fr;gap:22px;align-items:start}
-.rules-toc{
-  position:sticky;top:calc(var(--header-h) + 14px);
-  background:var(--surface);border:1.5px solid var(--border);
-  border-radius:var(--r);overflow:hidden;
-  max-height:calc(100vh - var(--header-h) - 40px);
-  overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;
-}
-.toc-hdr{
-  padding:11px 14px;background:var(--surface2);
-  font-size:11px;font-weight:600;color:var(--text-3);
-  letter-spacing:.08em;border-bottom:1px solid var(--border);
-}
-.toc-lnk{
-  display:block;padding:8px 14px;font-size:12px;color:var(--text-2);
-  cursor:pointer;transition:background .12s;
-  border-left:3px solid transparent;line-height:1.4;
-}
-.toc-lnk:hover{background:var(--surface2);color:var(--text)}
-.toc-lnk.on{background:var(--navy-dim);color:var(--navy);border-left-color:var(--enjii);font-weight:500}
-[data-theme="dark"] .toc-lnk.on{color:var(--text)}
-.toc-lnk.sub{padding-left:22px;font-size:11.5px;color:var(--text-3)}
-
-.article{
-  background:var(--surface);border:1.5px solid var(--border);
-  border-radius:var(--r);margin-bottom:10px;overflow:hidden;
-  transition:box-shadow .15s;
-  scroll-margin-top:calc(var(--header-h) + 16px);
-}
-.article:hover{box-shadow:var(--shadow-sm)}
-.art-hdr{display:flex;align-items:baseline;gap:10px;padding:14px 18px 10px}
-.art-num{
-  font-size:10.5px;font-weight:700;color:var(--enjii);
-  background:var(--enjii-bg);padding:2px 8px;border-radius:4px;
-  white-space:nowrap;letter-spacing:.05em;flex-shrink:0;
-}
-.art-title{font-size:14px;font-weight:600;color:var(--text)}
-.art-body{padding:0 18px 15px;font-size:13.5px;color:var(--text-2);line-height:1.9}
-.art-main{margin-bottom:10px}
-.items-list{list-style:none;padding:0;margin-top:8px}
-.item-row{display:flex;gap:11px;padding:4px 0;font-size:13px;color:var(--text-2);align-items:flex-start}
-.item-idx{min-width:22px;font-weight:600;color:var(--navy);flex-shrink:0;font-size:12.5px;padding-top:2px}
-[data-theme="dark"] .item-idx{color:#8fb4ff}
-.sub-list{list-style:none;margin-top:5px;padding-left:14px}
-.sub-row{display:flex;gap:9px;padding:3px 0;font-size:12.5px;color:var(--text-3);align-items:flex-start}
-.sub-idx{min-width:18px;color:var(--enjii);font-size:12px;flex-shrink:0;padding-top:2px}
-
-.chapter-div{
-  font-family:'Noto Serif JP',serif;font-size:14px;font-weight:600;
-  color:var(--navy);padding:11px 16px;
-  background:rgba(26,39,68,.05);border-left:4px solid var(--navy);
-  border-radius:0 7px 7px 0;margin-bottom:12px;margin-top:22px;
-}
-[data-theme="dark"] .chapter-div{color:var(--text);background:rgba(255,255,255,.05)}
-
-/* ===========================
-   EVENTS
-=========================== */
-.events-list{display:flex;flex-direction:column;gap:10px}
-.ev-month{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);overflow:hidden}
-.ev-month-hdr{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:11px 18px;background:var(--navy);color:white;
-}
-.ev-month-name{font-family:'Noto Serif JP',serif;font-size:14px;font-weight:600}
-.ev-month-num{font-size:26px;font-weight:700;opacity:.17;font-family:'Noto Serif JP',serif;line-height:1}
-.ev-items{padding:8px 18px 10px}
-.ev-item{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--border-2);font-size:13.5px}
-.ev-item:last-child{border-bottom:none;padding-bottom:2px}
-.ev-bullet{width:5px;height:5px;border-radius:50%;background:var(--enjii);flex-shrink:0;margin-top:8px}
-.ev-name{color:var(--text-2);line-height:1.6}
-
-/* ===========================
-   SONGS
-=========================== */
-.song-card{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:18px}
-.song-hdr{padding:14px 22px;background:var(--navy);color:white;display:flex;justify-content:space-between;align-items:center}
-.song-hdr-ttl{font-family:'Noto Serif JP',serif;font-size:16px;font-weight:600}
-.song-hdr-badge{font-size:10.5px;background:rgba(255,255,255,.14);padding:3px 10px;border-radius:12px}
-.song-verses{padding:22px 28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:22px}
-.verse-num{font-size:10.5px;color:var(--enjii);font-weight:700;margin-bottom:5px;letter-spacing:.1em}
-.verse-text{font-family:'Noto Serif JP',serif;font-size:13.5px;color:var(--text-2);line-height:2.4}
-
-/* ===========================
-   CURRICULUM
-=========================== */
-.year-tabs{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
-.year-tab{
-  padding:7px 16px;border-radius:7px;font-size:12.5px;
-  border:1.5px solid var(--border);background:var(--surface2);
-  color:var(--text-2);cursor:pointer;transition:all .15s;
-}
-.year-tab.on{background:var(--navy);color:white;border-color:var(--navy)}
-.table-outer{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:13.5px}
-th{background:var(--surface2);padding:9px 13px;text-align:left;font-size:11.5px;font-weight:600;color:var(--text-3);border-bottom:2px solid var(--border);white-space:nowrap;letter-spacing:.04em}
-td{padding:9px 13px;border-bottom:1px solid var(--border-2);color:var(--text-2)}
-tr:hover td{background:var(--surface2)}
-tr:last-child td{border-bottom:none}
-
-/* ===========================
-   COMING SOON
-=========================== */
-.coming-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:56vh;text-align:center;gap:18px}
-.coming-icon-ring{
-  width:72px;height:72px;border:2px solid var(--border);border-radius:50%;
-  display:flex;align-items:center;justify-content:center;
-  animation:ringRotate 20s linear infinite;
-}
-.coming-icon-ring svg{width:28px;height:28px;stroke:var(--text-3);fill:none;stroke-width:1.5}
-@keyframes ringRotate{to{transform:rotate(360deg)}}
-.coming-ttl{font-family:'Noto Serif JP',serif;font-size:22px;font-weight:600}
-.coming-sub{font-size:13.5px;color:var(--text-3);max-width:360px;line-height:1.85}
-.coming-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;width:100%;max-width:620px}
-.coming-card{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:18px;text-align:center;opacity:.55}
-.coming-card-icon{width:32px;height:32px;margin:0 auto 10px;display:flex;align-items:center;justify-content:center}
-.coming-card-icon svg{width:28px;height:28px;stroke:var(--text-3);fill:none;stroke-width:1.4}
-.coming-card-ttl{font-size:13px;font-weight:600;margin-bottom:4px}
-.coming-card-desc{font-size:11.5px;color:var(--text-3);line-height:1.6}
-
-/* ===========================
-   AI FLOAT
-=========================== */
-.ai-float{position:fixed;right:18px;bottom:18px;z-index:350;display:flex;flex-direction:column;align-items:flex-end;gap:10px}
-.ai-toggle{
-  width:50px;height:50px;background:var(--navy);border:none;border-radius:50%;
-  cursor:pointer;display:flex;align-items:center;justify-content:center;
-  color:white;box-shadow:0 4px 18px rgba(26,39,68,.42);
-  transition:transform .18s,box-shadow .18s;position:relative;
-}
-.ai-toggle svg{width:22px;height:22px;stroke:white;fill:none;stroke-width:1.8}
-.ai-toggle:hover{transform:scale(1.06);box-shadow:0 6px 24px rgba(26,39,68,.52)}
-.ai-badge-dot{
-  position:absolute;top:-2px;right:-2px;width:13px;height:13px;
-  background:var(--enjii);border-radius:50%;border:2px solid var(--bg);
-}
-.ai-window{
-  width:330px;background:var(--surface);border:1.5px solid var(--border);
-  border-radius:var(--r-lg);box-shadow:var(--shadow-lg);
-  display:none;flex-direction:column;overflow:hidden;max-height:440px;
-}
-.ai-window.open{display:flex;animation:slideUp .2s ease}
-@keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.ai-win-hdr{
-  padding:12px 14px;background:var(--navy);color:white;
-  display:flex;justify-content:space-between;align-items:center;flex-shrink:0;
-}
-.ai-win-ttl{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
-.ai-online{width:7px;height:7px;background:#4ade80;border-radius:50%;animation:aiP 2s infinite}
-.ai-close-btn{background:none;border:none;color:rgba(255,255,255,.6);cursor:pointer;line-height:1;padding:2px}
-.ai-close-btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
-.ai-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:9px}
-.ai-msg{max-width:87%;animation:msgFade .18s ease}
-@keyframes msgFade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
-.ai-msg.usr{align-self:flex-end}
-.ai-msg.bot{align-self:flex-start}
-.ai-bubble{padding:9px 12px;border-radius:11px;font-size:12.5px;line-height:1.65}
-.ai-msg.usr .ai-bubble{background:var(--navy);color:white;border-radius:11px 11px 3px 11px}
-.ai-msg.bot .ai-bubble{background:var(--surface2);color:var(--text);border-radius:11px 11px 11px 3px}
-.ai-input-row{padding:10px 11px;border-top:1px solid var(--border);display:flex;gap:7px;flex-shrink:0}
-.ai-input{
-  flex:1;border:1.5px solid var(--border);border-radius:7px;
-  padding:7px 10px;font-size:12px;background:var(--bg);color:var(--text);
-  outline:none;resize:none;height:34px;transition:border-color .18s;
-}
-.ai-input:focus{border-color:var(--navy)}
-.ai-send{
-  width:34px;height:34px;background:var(--navy);border:none;border-radius:7px;
-  color:white;cursor:pointer;display:flex;align-items:center;justify-content:center;
-  flex-shrink:0;transition:background .15s;
-}
-.ai-send svg{width:14px;height:14px;stroke:white;fill:none;stroke-width:2.5}
-.ai-send:hover{background:var(--navy-light)}
-.ai-send:disabled{opacity:.45;cursor:not-allowed}
-
-/* ===========================
-   RESPONSIVE
-=========================== */
-@media(max-width:860px){
-  .cat-grid{
-    grid-template-columns:repeat(2,1fr);
-    grid-template-areas:
-      "rules    events"
-      "council  songs"
-      "curric   curric"
-      "about    about";
-  }
-  /* タブレット以下では横レイアウトを維持しつつ縦でも可 */
-  .cat-card-curriculum .cat-card-inner,
-  .cat-card-about .cat-card-inner {
-    flex-direction:row;align-items:flex-start;
-  }
-}
-@media(max-width:768px){
-  .sidebar{transform:translateX(-100%);z-index:190;width:280px}
-  .sidebar.open{transform:translateX(0)}
-  .sidebar-overlay.open{display:block}
-  .menu-btn{display:flex}
-  .main{margin-left:0;padding:24px 16px 100px}
-  .rules-wrap{grid-template-columns:1fr}
-  .rules-toc{position:static;max-height:none;display:none}
-  .brand-names{display:none}
-  .search-wrap{max-width:100%}
-  .bottom-nav{display:block}
-  .ai-float{bottom:calc(var(--bn-h) + var(--safe-b) + 10px)}
-  /* ヘッダーの下にコンテンツが隠れないよう明示的に余白確保 */
-  .pg-header{scroll-margin-top:calc(var(--header-h) + 16px)}
-  .home-wrap{padding-top:48px}
-}
-@media(max-width:500px){
-  .cat-grid{
-    grid-template-columns:1fr;
-    grid-template-areas:"rules""events""council""curric""songs""about";
-  }
-  .cat-card-curriculum .cat-card-inner,
-  .cat-card-about .cat-card-inner {
-    flex-direction:column;align-items:flex-start;
-  }
-  .cat-card-curriculum .cat-card-line,
-  .cat-card-about .cat-card-line { margin-bottom:8px; }
-  .cat-card{min-height:100px}
-  .song-verses{grid-template-columns:1fr}
-  .home-wrap{padding:48px 0 10px}
-}
-@media(display-mode:standalone){
-  .sidebar{display:none!important}
-  .menu-btn{display:none!important}
-  .main{margin-left:0!important;padding-bottom:calc(var(--bn-h) + var(--safe-b) + 24px)!important}
-  .bottom-nav{display:block!important}
-  .ai-float{bottom:calc(var(--bn-h) + var(--safe-b) + 10px)!important}
-}
-/* PWA: レイアウトがsafe-t分余分に下がるので、home-wrapは追加パディング不要 */
-.pwa-mode .home-wrap{padding-top:20px}
-.pwa-mode .menu-btn{display:none!important}
-.pwa-mode .bottom-nav{display:block!important}
-.pwa-mode .ai-float{bottom:calc(var(--bn-h) + var(--safe-b) + 10px)!important}
-
-/* ===========================
-   NOTICES (Issue #37 アプリ内お知らせ)
-=========================== */
-.hdr-bell{position:relative}
-.hdr-bell-badge{
-  position:absolute;top:2px;right:2px;
-  min-width:17px;height:17px;padding:0 4px;
-  background:#c0392b;color:#fff;border-radius:9px;
-  font-size:10px;font-weight:700;line-height:17px;text-align:center;
-  border:2px solid var(--bg);
-  animation:bellPop .25s ease;
-}
-@keyframes bellPop{from{transform:scale(.5)}to{transform:scale(1)}}
-.notice-list{display:flex;flex-direction:column;gap:10px}
-.notice-card{
-  background:var(--surface);border:1.5px solid var(--border);
-  border-radius:var(--r);padding:16px 18px;cursor:pointer;
-  transition:border-color .15s,box-shadow .15s;
-  position:relative;
-}
-.notice-card:hover{border-color:var(--navy);box-shadow:var(--shadow-sm)}
-.notice-card.unread{border-color:rgba(192,57,43,.35)}
-.notice-row1{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
-.notice-cat{
-  font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;
-  letter-spacing:.03em;flex-shrink:0;
-}
-.notice-date{font-size:11px;color:var(--text-3);margin-left:auto;flex-shrink:0}
-.notice-unread-dot{
-  width:8px;height:8px;border-radius:50%;background:#c0392b;flex-shrink:0;
-  animation:aiP 2s ease-in-out infinite;
-}
-.notice-title{font-size:14.5px;font-weight:600;color:var(--text);line-height:1.6}
-.notice-card.unread .notice-title{font-weight:700}
-.notice-snip{
-  font-size:12.5px;color:var(--text-2);line-height:1.8;margin-top:4px;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
-}
-.notice-detail-body{
-  font-size:14px;color:var(--text-2);line-height:2.0;white-space:pre-wrap;
-  background:var(--surface);border:1.5px solid var(--border);
-  border-radius:var(--r);padding:22px 24px;
-}
-.notice-pin{font-size:10px;font-weight:700;color:var(--enjii)}
-.notice-empty{
-  text-align:center;padding:48px 20px;color:var(--text-3);
-}
-.notice-empty-ttl{font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px}
-.notice-link-btn{
-  margin-top:12px;display:inline-flex;align-items:center;gap:6px;
-  padding:8px 16px;background:var(--navy);color:#fff;border:none;
-  border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;
-}
-.notice-link-btn:hover{background:var(--navy-light)}
-
-/* ===========================
-   CONTACT FORM
-=========================== */
-.contact-form{display:flex;flex-direction:column;gap:18px}
-.cf-field{display:flex;flex-direction:column;gap:6px}
-.cf-label{font-size:13px;font-weight:600;color:var(--text-2)}
-.cf-req{font-size:10px;color:var(--enjii);background:var(--enjii-bg);padding:1px 6px;border-radius:4px;margin-left:4px}
-.cf-input{
-  padding:10px 13px;border:1.5px solid var(--border);border-radius:var(--r);
-  background:var(--surface);color:var(--text);font-size:14px;font-family:inherit;
-  transition:border-color .15s;outline:none;width:100%;box-sizing:border-box;
-}
-.cf-input:focus{border-color:var(--navy)}
-[data-theme="dark"] .cf-input{background:var(--surface2)}
-.cf-textarea{min-height:120px;resize:vertical;line-height:1.6}
-select.cf-input{cursor:pointer}
-.cf-submit{
-  padding:12px 28px;background:var(--navy);color:#fff;border:none;
-  border-radius:var(--r);font-size:14px;font-weight:600;cursor:pointer;
-  transition:background .15s;align-self:flex-start;
-}
-.cf-submit:hover{background:var(--navy-light)}
-.cf-submit:disabled{opacity:.5;cursor:not-allowed}
-.cf-error{font-size:12px;color:var(--enjii);margin-top:2px}
-
-/* Email suggest dropdown (teacher email autocomplete for absence applications) */
-.email-suggest-wrap{position:relative}
-.email-suggest-dd{
-  position:absolute;top:calc(100% + 6px);left:0;right:0;
-  background:var(--surface);border:1.5px solid var(--border);
-  border-radius:var(--r);box-shadow:var(--shadow-lg);
-  z-index:200;display:none;overflow:hidden;max-height:220px;overflow-y:auto;
-}
-.email-suggest-dd.open{display:block;animation:dropIn .15s ease}
-.es-item{padding:9px 12px;cursor:pointer;transition:background .12s;display:flex;flex-direction:column;gap:1px}
-.es-item:hover,.es-item.es-active{background:var(--surface2)}
-.es-name{font-size:12.5px;font-weight:600;color:var(--text)}
-.es-email{font-size:11.5px;color:var(--text-3)}
-.es-hint{padding:8px 12px;font-size:10.5px;color:var(--text-3);border-top:1px solid var(--border);background:var(--surface2)}
-
-/* ===========================
-   マイページ: ロール／承認バッジ
-   =========================== */
-.mp-badge{
-  display:inline-flex;align-items:center;
-  font-size:10.5px;font-weight:700;letter-spacing:.02em;
-  padding:3px 9px;border-radius:20px;white-space:nowrap;line-height:1.5;
-}
-
-/* ===========================
-   マイページ: LINE連携バナー
-   =========================== */
-.line-banner{
-  position:relative;overflow:hidden;
-  background:linear-gradient(135deg,rgba(6,199,85,.10),rgba(6,199,85,.03));
-  border:1.5px solid rgba(6,199,85,.30);
-  border-radius:var(--r-lg);padding:20px 22px;margin-bottom:16px;
-}
-.line-banner::before{
-  content:'';position:absolute;top:-40px;right:-30px;
-  width:150px;height:150px;border-radius:50%;
-  background:radial-gradient(circle,rgba(6,199,85,.14),transparent 70%);
-  pointer-events:none;
-}
-.line-banner-body{position:relative;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
-.line-banner-txt{flex:1;min-width:220px}
-.line-banner-ttl{
-  display:flex;align-items:center;gap:9px;
-  font-size:14.5px;font-weight:700;color:var(--text);margin-bottom:7px;
-}
-.line-banner-mark{
-  width:26px;height:26px;border-radius:8px;background:#06c755;
-  display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
-}
-.line-banner-mark svg{width:17px;height:17px;fill:#fff}
-.line-banner-sub{font-size:12px;color:var(--text-2);line-height:1.9;margin:0}
-.line-link-btn{
-  border:none;background:transparent;padding:0;cursor:pointer;
-  border-radius:8px;line-height:0;flex-shrink:0;
-  transition:transform .15s ease,box-shadow .15s ease,opacity .15s;
-  box-shadow:0 2px 10px rgba(6,199,85,.28);
-}
-.line-link-btn img{display:block;width:186px;height:auto;border-radius:8px}
-.line-link-btn:hover{transform:translateY(-1px);box-shadow:0 5px 18px rgba(6,199,85,.35)}
-.line-link-btn:active{transform:translateY(0)}
-.line-link-btn:disabled{opacity:.55;cursor:progress;transform:none}
-@media(max-width:560px){
-  .line-banner-body{flex-direction:column;align-items:stretch}
-  .line-link-btn{align-self:center}
-}
-
-/* ===========================
-   マイページ: LINE連携済みカード
-   =========================== */
-.line-linked{
-  background:var(--surface);border:1.5px solid rgba(6,199,85,.32);
-  border-left:4px solid #06c755;
-  border-radius:var(--r-lg);padding:16px 18px;margin-bottom:16px;
-}
-.line-linked-row{display:flex;align-items:center;gap:13px;flex-wrap:wrap}
-.line-linked-ava{
-  width:42px;height:42px;border-radius:50%;flex-shrink:0;overflow:hidden;
-  background:#06c755;display:flex;align-items:center;justify-content:center;
-}
-.line-linked-ava svg{width:24px;height:24px;fill:#fff}
-.line-linked-ava img{width:100%;height:100%;object-fit:cover;display:block}
-.line-linked-badge{
-  display:inline-flex;align-items:center;
-  background:rgba(6,199,85,.14);color:#048c3d;
-  font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;
-}
-[data-theme="dark"] .line-linked-badge{color:#3ddc7f}
-[data-theme="dark"] #mypageApprovalNotice{background:rgba(242,223,168,.10);border-color:rgba(242,223,168,.28);color:#e0c877}
-.line-linked-name{font-size:13px;font-weight:600;color:var(--text);word-break:break-all}
-.line-linked-sub{font-size:11.5px;color:var(--text-3);margin-top:4px;line-height:1.7}
-.line-unlink-btn{
-  padding:7px 14px;background:transparent;border:1.5px solid var(--border);
-  border-radius:8px;font-size:11.5px;font-weight:600;color:var(--text-2);
-  cursor:pointer;font-family:inherit;flex-shrink:0;transition:.15s;
-}
-.line-unlink-btn:hover{border-color:var(--enjii);color:var(--enjii);background:var(--enjii-bg)}
-.line-unlink-btn:disabled{opacity:.5;cursor:progress}
-</style>
+<link rel="stylesheet" href="/src/css/tokens.css">
+<link rel="stylesheet" href="/src/css/layout.css">
+<link rel="stylesheet" href="/src/css/home.css">
+<link rel="stylesheet" href="/src/css/search.css">
+<link rel="stylesheet" href="/src/css/articles.css">
+<link rel="stylesheet" href="/src/css/components.css">
+<link rel="stylesheet" href="/src/css/responsive.css">
 </head>
 <body>
 
@@ -1283,7 +86,7 @@ select.cf-input{cursor:pointer}
   </button>
 
   <div class="header-brand" onclick="nav('home')">
-    <img class="brand-crest" src="/crest.png" alt="校章">
+    <img class="brand-crest" src="/icons/icon-512.png" alt="校章">
     <div class="brand-names">
       <span class="brand-main">デジタル生徒手帳</span>
       <span class="brand-sub">水戸第一高等学校</span>
@@ -1322,6 +125,21 @@ select.cf-input{cursor:pointer}
     </button>
   </div>
 </header>
+
+<!-- 時間割フローティングウィジェット（Issue #85）
+     ホーム画面のみに表示（nav() がホーム以外では .tt-hidden を付与）。
+     ヘッダー直下・画面右上。AI FLOATとは別位置（右下）なので衝突しない。
+     機能フラグ非対象のときはJS側(applyFeatureGates)で非表示にする。 -->
+<button class="tt-widget" id="ttWidget" data-p="timetable" onclick="nav('timetable')" title="時間割を開く" aria-label="時間割を開く">
+  <span class="tt-widget-icon">
+    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+  </span>
+  <span class="tt-widget-txt">
+    <span class="tt-widget-ttl">時間割<span class="tt-widget-badge" id="ttWidgetBadge" style="display:none">NEW</span></span>
+    <span class="tt-widget-sub" id="ttWidgetSub">読み込み中...</span>
+  </span>
+  <span class="tt-widget-chev"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></span>
+</button>
 
 <div class="sidebar-overlay" id="sbOverlay" onclick="toggleSidebar()"></div>
 
@@ -1377,6 +195,11 @@ select.cf-input{cursor:pointer}
   </div>
   <div class="sb-section">
     <div class="sb-label">学校生活</div>
+    <button class="sb-item" data-p="timetable" onclick="nav('timetable')">
+      <span class="sb-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+      時間割
+      <span class="sb-badge" id="sbBadgeTimetable" style="display:none;background:#c0392b;color:#fff"></span>
+    </button>
     <button class="sb-item" data-p="curriculum" onclick="nav('curriculum')">
       <span class="sb-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>
       教育課程
@@ -1416,7 +239,6 @@ select.cf-input{cursor:pointer}
   </div>
   <div class="sb-section">
     <div class="sb-label">近日公開</div>
-    <button class="sb-item dim"><span class="sb-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>時間割<span class="sb-dim-badge">準備中</span></button>
     <button class="sb-item dim"><span class="sb-icon"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>デジタル身分証<span class="sb-dim-badge">準備中</span></button>
   </div>
   <div class="sb-section">
@@ -1476,6 +298,10 @@ select.cf-input{cursor:pointer}
         <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <div class="more-lbl">年間行事</div>
       </button>
+      <button class="more-item" data-mp="timetable" onclick="nav('timetable');closeMore()">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <div class="more-lbl">時間割</div>
+      </button>
       <button class="more-item" data-mp="curriculum" onclick="nav('curriculum');closeMore()">
         <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <div class="more-lbl">教育課程</div>
@@ -1487,6 +313,10 @@ select.cf-input{cursor:pointer}
       <button class="more-item" data-mp="contact" onclick="nav('contact');closeMore()">
         <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <div class="more-lbl">お問い合わせ</div>
+      </button>
+      <button class="more-item" data-mp="install" onclick="closeMore();openInstallSheet()">
+        <svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M12 8.5v7"/><path d="M8.5 12h7"/></svg>
+        <div class="more-lbl">ホーム画面に追加</div>
       </button>
     </div>
 
@@ -1545,16 +375,306 @@ select.cf-input{cursor:pointer}
         <div class="more-lbl">身分証</div>
       </button>
     </div>
-    <div class="more-sheet-foot">茨城県立水戸第一高等学校・附属中学校 デジタル生徒手帳</div>
+<div class="more-sheet-foot">茨城県立水戸第一高等学校・附属中学校 デジタル生徒手帳</div>
   </div>
 </div>
 
-<!-- MAIN -->
+<!-- PWA インストールシート（ホーム画面に追加） -->
+<div class="install-overlay" id="installOverlay" onclick="closeInstallSheet()"></div>
+<div class="install-sheet" id="installSheet" role="dialog" aria-modal="true" aria-label="ホーム画面に追加の方法">
+  <div class="install-handle"></div>
+  <div class="install-sheet-head">
+    <span class="install-sheet-title">ホーム画面に追加</span>
+    <button class="install-sheet-close" onclick="closeInstallSheet()" aria-label="閉じる">
+      <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="install-sheet-scroll">
+    <div class="install-hero">
+      <div class="install-hero-icon">
+        <svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M12 8.5v7"/><path d="M8.5 12h7"/></svg>
+      </div>
+      <div>
+        <div class="install-hero-ttl">デジタル生徒手帳</div>
+        <div class="install-hero-sub">iPhone のホーム画面に追加すると、アプリのようにすばやく開けてオフラインでも閲覧できます。</div>
+        <div class="install-hero-note">※ 追加しなくても、このままブラウザですぐ利用できます。</div>
+      </div>
+    </div>
+
+    <div class="install-push-notice" id="installPushNotice" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <div><b>通知を受け取るには、ホーム画面への追加が必要です。</b>追加したアプリアイコンから開くと「通知をONにする」を押せます。</div>
+    </div>
+
+    <div class="install-benefits">
+      <div class="install-benefit">
+        <svg viewBox="0 0 24 24"><path d="M13 2L4.5 13H11l-1.5 9L19 10h-6.5z"/></svg>
+        <div class="install-benefit-t">すぐ開ける</div>
+        <div class="install-benefit-s">ホーム画面からワンタップ</div>
+      </div>
+      <div class="install-benefit">
+        <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        <div class="install-benefit-t">フル画面</div>
+        <div class="install-benefit-s">ブラウザの枠が消えて見やすく</div>
+      </div>
+      <div class="install-benefit">
+        <svg viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><polyline points="9 12 11 14 15 10"/></svg>
+        <div class="install-benefit-t">オフライン</div>
+        <div class="install-benefit-s">通信が不安定でも閲覧可能</div>
+      </div>
+    </div>
+
+    <div class="install-steps">
+      <div class="install-step-title" id="installStepsTitle">iPhone での追加方法（約30秒）</div>
+
+      <!-- Safari 手順 -->
+      <div id="installStepsSafari">
+        <div class="install-step">
+          <div class="install-step-num">1</div>
+          <div class="install-step-body">
+            <div class="install-step-name">
+              <svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>
+              「URLバー」横の「三本線」アイコンをタップ
+            </div>
+            <div class="install-step-desc">URLバーの左側に表示されています。</div>
+          </div>
+        </div>
+        <div class="install-step">
+          <div class="install-step-num">2</div>
+          <div class="install-step-body">
+            <div class="install-step-name">
+              <svg viewBox="0 0 24 24"><rect x="4" y="12" width="16" height="8" rx="2"/><path d="M12 12V4"/><path d="M8 8l4-4 4 4"/></svg>
+              メニューから「共有」をタップ
+            </div>
+            <div class="install-step-desc">展開されたメニューの中から「共有」を選択します。</div>
+          </div>
+        </div>
+        <div class="install-step">
+          <div class="install-step-num">3</div>
+          <div class="install-step-body">
+            <div class="install-step-name">
+              <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/><path d="M12 13.5v4"/><path d="M10 15.5h4"/></svg>
+              「ホーム画面に追加」をタップ
+            </div>
+            <div class="install-step-desc">共有メニューの中に表示されます。見つからない場合は下へスクロールしてください。</div>
+          </div>
+        </div>
+        <div class="install-step">
+          <div class="install-step-num">4</div>
+          <div class="install-step-body">
+            <div class="install-step-name">
+              <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+              右上の「追加」をタップ
+            </div>
+            <div class="install-step-desc">名前を確認して「追加」を押すと、ホーム画面にアイコンが追加されます。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chrome 手順 -->
+      <div id="installStepsChrome" style="display:none">
+        <div class="install-step">
+          <div class="install-step-num">1</div>
+          <div class="install-step-body">
+            <div class="install-step-name">
+              <svg viewBox="0 0 24 24"><rect x="4" y="12" width="16" height="8" rx="2"/><path d="M12 12V4"/><path d="M8 8l4-4 4 4"/></svg>
+              「アドレスバー」横の「共有」アイコンをタップ
+            </div>
+            <div class="install-step-desc">アドレスバーの右端に表示されています。</div>
+          </div>
+        </div>
+        <div class="install-step">
+          <div class="install-step-num">2</div>
+          <div class="install-step-body">
+            <div class="install-step-name">
+              <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/><path d="M12 13.5v4"/><path d="M10 15.5h4"/></svg>
+              「ホーム画面に追加」をタップ
+            </div>
+            <div class="install-step-desc">共有メニューの中に表示されます。見つからない場合は下へスクロールしてください。</div>
+          </div>
+        </div>
+        <div class="install-step">
+          <div class="install-step-num">3</div>
+          <div class="install-step-body">
+            <div class="install-step-name">
+              <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+              右上の「追加」をタップ
+            </div>
+            <div class="install-step-desc">名前を確認して「追加」を押すと、ホーム画面にアイコンが追加されます。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="install-note">
+      <svg viewBox="0 0 24 24"><path d="M12 4l10 17H2z"/><path d="M12 10.5v4.5"/><path d="M12 18.5h.01"/></svg>
+      <div>追加後は、ブラウザではなくホーム画面のアイコンから開いてください。追加は何度でも取り消せます。</div>
+    </div>
+  </div>
+  <div class="install-sheet-foot">
+    <button class="install-btn-ghost" onclick="closeInstallSheet()">今は閉じる</button>
+    <button class="install-btn-ghost" onclick="neverShowInstall()">今後表示しない</button>
+  </div>
+</div>
+
+<!-- マイページ：設定シート（Issue #67: 上部の連携カード群を「設定」に集約） -->
+<div class="settings-overlay" id="settingsOverlay" onclick="closeSettingsSheet()"></div>
+<div class="settings-sheet" id="settingsSheet" role="dialog" aria-modal="true" aria-label="設定">
+  <div class="settings-handle"></div>
+  <div class="settings-sheet-head">
+    <span class="settings-sheet-title">設定</span>
+    <button class="settings-sheet-close" onclick="closeSettingsSheet()" aria-label="閉じる">
+      <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="settings-sheet-scroll">
+
+    <div class="settings-sec-label">連携・通知</div>
+
+    <!-- ============ LINE連携 ============ -->
+    <!-- 未連携: バナー -->
+    <div id="lineLinkBanner" class="line-banner" style="display:none">
+      <div class="line-banner-body">
+        <div class="line-banner-txt">
+          <div class="line-banner-ttl">
+            <span class="line-banner-mark"><svg viewBox="0 0 24 24"><path d="M24 10.3C24 5 18.6.7 12 .7S0 5 0 10.3c0 4.8 4.3 8.8 10 9.5.4.1.9.3 1.1.6.1.3.1.7.1 1l-.2 1.1c0 .3-.2 1.2 1.1.7 1.3-.6 7.2-4.2 9.7-7.2 1.7-1.9 2.2-3.8 2.2-5.7z"/></svg></span>
+            LINEで通知を受け取る
+          </div>
+          <p class="line-banner-sub">
+            LINEアカウントを連携すると、公欠申請の承認完了などのお知らせをLINEで受け取れます。<br>
+            <span style="color:var(--text-3)">※ LINEでログインするものではありません。今お使いのアカウントにLINEを紐づけます。</span>
+          </p>
+        </div>
+        <button type="button" class="line-link-btn" id="lineLinkBtn" onclick="startLineLinkFront()" aria-label="LINEアカウントを連携する">
+          <img src="/img/line-login-button.png" alt="LINEで連携する" width="303" height="88">
+        </button>
+      </div>
+    </div>
+
+    <!-- LINE連携: 待機中パネル（LINEの同意画面は別タブで開く） -->
+    <div id="lineLinkWaiting" class="line-banner" style="display:none">
+      <div class="line-banner-body">
+        <div class="line-banner-txt">
+          <div class="line-banner-ttl">
+            <span class="line-wait-spinner" aria-hidden="true"></span>
+            LINE連携を待機中です...
+          </div>
+          <p class="line-banner-sub">
+            LINEアプリ・ブラウザの画面でログイン・同意が終わると、自動で連携が完了します。<br>
+            <span style="color:var(--text-3)">この画面（アプリ）は閉じずにそのままお待ちください。</span>
+          </p>
+        </div>
+      </div>
+      <div class="line-wait-actions">
+        <a href="#" id="lineLinkWaitingUrl" class="line-wait-open" target="_blank" rel="noopener">LINE連携ページを開く</a>
+        <button type="button" class="line-unlink-btn" id="lineLinkCancelBtn" onclick="cancelLineLinkFront()">キャンセル</button>
+      </div>
+    </div>
+
+    <!-- 連携済み: ステータス表示＋解除 -->
+    <div id="lineLinkedCard" class="line-linked" style="display:none">
+      <div class="line-linked-row">
+        <div class="line-linked-ava" id="lineLinkedAvatar">
+          <svg viewBox="0 0 24 24"><path d="M24 10.3C24 5 18.6.7 12 .7S0 5 0 10.3c0 4.8 4.3 8.8 10 9.5.4.1.9.3 1.1.6.1.3.1.7.1 1l-.2 1.1c0 .3-.2 1.2 1.1.7 1.3-.6 7.2-4.2 9.7-7.2 1.7-1.9 2.2-3.8 2.2-5.7z"/></svg>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+            <span class="line-linked-badge">✓ LINE連携済み</span>
+            <span class="line-linked-name" id="lineLinkedName"></span>
+          </div>
+          <div class="line-linked-sub">承認完了などのお知らせをLINEにお届けします。</div>
+        </div>
+        <button type="button" class="line-unlink-btn" id="lineUnlinkBtn" onclick="unlinkLineFront()">連携を解除</button>
+      </div>
+    </div>
+
+    <!-- ============ Google連携（β: featureFlags 'google-auth' で制御） ============ -->
+    <!-- 未連携: 連携ボタン / 連携済み: ステータス＋解除。対象外・未ログイン時は非表示 -->
+    <div id="googleLinkCard" class="line-linked" style="display:none;border-color:rgba(66,133,244,.35);border-left-color:#4285F4">
+      <div class="line-linked-row">
+        <div class="line-linked-ava" style="background:#fff;border:1px solid var(--border)">
+          <svg viewBox="0 0 24 24" style="width:22px;height:22px"><path fill="#4285F4" d="M23.5 12.3c0-.9-.1-1.5-.3-2.3H12v4.3h6.5c0 1.1-.7 2.7-2.1 3.8l-.1.1 3 2.4.2.1c1.9-1.8 3-4.4 3-8.4z"/><path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.8-2.9c-.7.4-1.9 1-4.1 1-3.1 0-5.7-2.1-6.6-4.9H1.5v3C3.5 21.3 7.5 24 12 24z"/><path fill="#FBBC05" d="M5.4 14.3c-.2-.7-.4-1.5-.4-2.3s.1-1.6.4-2.3v-3H1.5C.6 8.2 0 10 0 12s.6 3.8 1.5 5.3l3.9-3z"/><path fill="#EA4335" d="M12 4.7c1.8 0 3 .8 3.7 1.4l3.3-3.2C17.9 1.1 15.2 0 12 0 7.5 0 3.5 2.7 1.5 6.7l3.9 3c.9-2.8 3.5-5 6.6-5z"/></svg>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+            <span class="line-linked-badge" id="googleLinkBadge" style="background:rgba(66,133,244,.12);color:#1a56c4">Google未連携</span>
+            <span class="line-linked-name" id="googleLinkName"></span>
+          </div>
+          <div class="line-linked-sub" id="googleLinkSub">学校Googleアカウント（@mito1-h.ibk.ed.jp）を連携すると、次回からGoogleボタンでログインできます。</div>
+        </div>
+        <button type="button" class="line-unlink-btn" id="googleLinkBtn" onclick="linkGoogleFront()">連携する</button>
+        <button type="button" class="line-unlink-btn" id="googleUnlinkBtn" onclick="unlinkGoogleFront()" style="display:none">連携を解除</button>
+      </div>
+    </div>
+
+    <!-- ============ プッシュ通知（PWA） ============ -->
+    <div id="pushCard" class="line-linked" style="display:none;border-color:rgba(26,39,68,.28);border-left-color:#1a2744">
+      <div class="line-linked-row">
+        <div class="line-linked-ava" style="background:#1a2744">
+          <svg viewBox="0 0 24 24" style="width:22px;height:22px;stroke:#fff;fill:none;stroke-width:1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+            <span class="line-linked-badge" id="pushStatusBadge" style="background:rgba(26,39,68,.1);color:#1a2744">プッシュ通知: 確認中...</span>
+          </div>
+          <div class="line-linked-sub" id="pushStatusText">端末の対応状況を確認しています。</div>
+        </div>
+        <button type="button" class="line-unlink-btn" id="pushToggleBtn" onclick="togglePushFront()">通知をONにする</button>
+      </div>
+      <div id="pushTestRow" style="display:none;margin-top:10px;text-align:right">
+        <button type="button" class="line-unlink-btn" onclick="sendTestPushFront()">テスト通知を送る</button>
+      </div>
+    </div>
+
+    <!-- ============ 受け取る通知（Push / LINE 共通。将来の通知種別は push.js の NOTIFICATION_TYPES に追加） ============ -->
+    <div id="notifyPrefsBlock" class="notify-prefs" style="display:none">
+      <div class="settings-sec-label">受け取る通知</div>
+      <div class="notify-prefs-list" id="notifyPrefsList"></div>
+      <div class="notify-prefs-hint">ここでOFFにした通知は、プッシュ通知・LINE通知のどちらにも届きません。</div>
+    </div>
+
+    <div class="settings-sec-label">表示</div>
+    <!-- テーマ（Issue #103）: 既定は「自動」で端末のダークモード設定に追従する -->
+    <div class="theme-mode">
+      <div class="theme-mode-head">
+        <span class="settings-row-icon"><svg id="settingsThemeIcon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span>
+        <span class="settings-row-lbl" id="settingsThemeLbl">自動（ライト）</span>
+      </div>
+      <div class="theme-seg" role="group" aria-label="テーマ">
+        <button type="button" class="theme-seg-btn on" data-theme-mode="auto" aria-pressed="true" onclick="setThemeMode('auto')">自動</button>
+        <button type="button" class="theme-seg-btn" data-theme-mode="light" aria-pressed="false" onclick="setThemeMode('light')">ライト</button>
+        <button type="button" class="theme-seg-btn" data-theme-mode="dark" aria-pressed="false" onclick="setThemeMode('dark')">ダーク</button>
+      </div>
+      <div class="theme-mode-hint" id="themeModeHint">端末のダークモード設定に合わせて自動的に切り替えます。</div>
+    </div>
+
+    <div class="settings-sec-label">アカウント</div>
+    <button type="button" class="settings-row settings-row-danger" onclick="doLogoutFront()">
+      <span class="settings-row-icon"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
+      <span class="settings-row-lbl">ログアウト</span>
+    </button>
+
+  </div>
+</div>
+
 <main class="main" id="main">
 
   <!-- HOME -->
   <section class="pg on" id="pg-home">
     <div class="home-wrap">
+      <div class="install-banner" id="installBanner" role="status">
+        <div class="install-b-icon">
+          <svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M12 8.5v7"/><path d="M8.5 12h7"/></svg>
+        </div>
+        <div class="install-b-txt">
+          <div class="install-b-ttl">ホーム画面に追加<span class="install-b-new">NEW</span></div>
+          <div class="install-b-sub">アプリのように素早く開けるようになります</div>
+        </div>
+        <button class="install-b-btn" onclick="openInstallSheet()">追加方法</button>
+        <button class="install-b-close" onclick="dismissInstallBanner()" aria-label="閉じる">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
       <div class="home-brand">
         <div class="home-book">
           <img class="hb-crest" src="/crest_touka.png" alt="校章">
@@ -1823,6 +943,34 @@ select.cf-input{cursor:pointer}
     </div>
   </section>
 
+  <!-- 時間割 -->
+  <section class="pg" id="pg-timetable">
+    <div class="pg-header">
+      <div class="breadcrumb"><span onclick="nav('home')">ホーム</span><span class="breadcrumb-sep">›</span><span>時間割</span></div>
+      <h1 class="pg-title">時間割</h1>
+      <div class="pg-meta">
+        <span id="timetableMeta">読み込み中...</span>
+        <button type="button" class="tt-refresh-btn" id="timetableRefreshBtn" onclick="window.refreshTimetable && window.refreshTimetable()">
+          <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
+          更新
+        </button>
+      </div>
+    </div>
+    <div id="timetableBetaNotice" style="display:none;padding:40px 20px;text-align:center;color:var(--text-3);font-size:13px">
+      時間割は現在βテスト中です。<br>公開までお待ちください。
+    </div>
+    <div id="timetableImagesFront">
+      <div style="padding:40px;text-align:center;color:var(--text-3);font-size:13px">読み込み中...</div>
+    </div>
+    <p style="font-size:12px;color:var(--text-3);text-align:center;margin-top:8px">前日14時ごろに次の時間割へ自動更新されます。表示が古い場合は上の「更新」を押してください</p>
+    <details id="timetableHistoryWrap" style="margin-top:16px;border:1px solid var(--line);border-radius:var(--r);background:var(--card);overflow:hidden">
+      <summary id="timetableHistorySummary" style="padding:12px 16px;font-size:13px;font-weight:600;cursor:pointer;list-style:none">過去1週間分の時間割を見る</summary>
+      <div id="timetableHistoryList" style="padding:0 16px 16px">
+        <p style="font-size:12px;color:var(--text-3)">開くと過去の時間割を読み込みます</p>
+      </div>
+    </details>
+  </section>
+
   <!-- 生徒会活動 -->
   <section class="pg" id="pg-council-activities">
     <div class="pg-header">
@@ -1927,7 +1075,6 @@ select.cf-input{cursor:pointer}
       <h1 class="coming-ttl">近日公開予定</h1>
       <p class="coming-sub">以下の機能を鋭意開発中です。公開をお待ちください。</p>
       <div class="coming-cards">
-        <div class="coming-card"><div class="coming-card-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div><div class="coming-card-ttl">時間割</div><div class="coming-card-desc">クラス別時間割の確認</div></div>
         <div class="coming-card"><div class="coming-card-icon"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></div><div class="coming-card-ttl">デジタル身分証</div><div class="coming-card-desc">生徒証をスマートフォンで提示</div></div>
       </div>
     </div>
@@ -2051,69 +1198,16 @@ select.cf-input{cursor:pointer}
             </div>
             <div style="font-size:12px;color:var(--text-3)" id="mypageInfo">---</div>
           </div>
-          <button onclick="doLogoutFront()" style="padding:7px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;color:var(--text-2)">ログアウト</button>
+          <button type="button" class="mp-settings-btn" onclick="openSettingsSheet()" aria-haspopup="dialog" aria-expanded="false" aria-controls="settingsSheet">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            設定
+          </button>
         </div>
         <!-- 未承認生徒への案内 -->
         <div id="mypageApprovalNotice" style="display:none;margin-top:14px;padding:12px 14px;border-radius:9px;background:#fff8e5;border:1px solid #f2dfa8;font-size:12px;color:#7a5c05;line-height:1.85"></div>
         <!-- 委員会メンバー用：管理画面への導線（モデレーター以上のみ表示） -->
         <div id="mypageAdminLink" style="display:none;margin-top:12px">
           <a href="/admin/" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;background:var(--navy);color:#fff;font-size:12.5px;font-weight:600;text-decoration:none">⚙️ 管理画面を開く</a>
-        </div>
-      </div>
-
-      <!-- ============ LINE連携 ============ -->
-      <!-- 未連携: バナー（ログイン済みのマイページのみ表示） -->
-      <div id="lineLinkBanner" class="line-banner" style="display:none">
-        <div class="line-banner-body">
-          <div class="line-banner-txt">
-            <div class="line-banner-ttl">
-              <span class="line-banner-mark"><svg viewBox="0 0 24 24"><path d="M24 10.3C24 5 18.6.7 12 .7S0 5 0 10.3c0 4.8 4.3 8.8 10 9.5.4.1.9.3 1.1.6.1.3.1.7.1 1l-.2 1.1c0 .3-.2 1.2 1.1.7 1.3-.6 7.2-4.2 9.7-7.2 1.7-1.9 2.2-3.8 2.2-5.7z"/></svg></span>
-              LINEで通知を受け取る
-            </div>
-            <p class="line-banner-sub">
-              LINEアカウントを連携すると、公欠申請の承認完了などのお知らせをLINEで受け取れます。<br>
-              <span style="color:var(--text-3)">※ LINEでログインするものではありません。今お使いのアカウントにLINEを紐づけます。</span>
-            </p>
-          </div>
-          <button type="button" class="line-link-btn" id="lineLinkBtn" onclick="startLineLinkFront()" aria-label="LINEアカウントを連携する">
-            <img src="/img/line-login-button.png" alt="LINEで連携する" width="303" height="88">
-          </button>
-        </div>
-      </div>
-
-      <!-- 連携済み: ステータス表示＋解除 -->
-      <div id="lineLinkedCard" class="line-linked" style="display:none">
-        <div class="line-linked-row">
-          <div class="line-linked-ava" id="lineLinkedAvatar">
-            <svg viewBox="0 0 24 24"><path d="M24 10.3C24 5 18.6.7 12 .7S0 5 0 10.3c0 4.8 4.3 8.8 10 9.5.4.1.9.3 1.1.6.1.3.1.7.1 1l-.2 1.1c0 .3-.2 1.2 1.1.7 1.3-.6 7.2-4.2 9.7-7.2 1.7-1.9 2.2-3.8 2.2-5.7z"/></svg>
-          </div>
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
-              <span class="line-linked-badge">✓ LINE連携済み</span>
-              <span class="line-linked-name" id="lineLinkedName"></span>
-            </div>
-            <div class="line-linked-sub">承認完了などのお知らせをLINEにお届けします。</div>
-          </div>
-          <button type="button" class="line-unlink-btn" id="lineUnlinkBtn" onclick="unlinkLineFront()">連携を解除</button>
-        </div>
-      </div>
-
-      <!-- ============ プッシュ通知（PWA） ============ -->
-      <div id="pushCard" class="line-linked" style="display:none;border-color:rgba(26,39,68,.28);border-left-color:#1a2744">
-        <div class="line-linked-row">
-          <div class="line-linked-ava" style="background:#1a2744">
-            <svg viewBox="0 0 24 24" style="width:22px;height:22px;stroke:#fff;fill:none;stroke-width:1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          </div>
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
-              <span class="line-linked-badge" id="pushStatusBadge" style="background:rgba(26,39,68,.1);color:#1a2744">プッシュ通知: 確認中...</span>
-            </div>
-            <div class="line-linked-sub" id="pushStatusText">端末の対応状況を確認しています。</div>
-          </div>
-          <button type="button" class="line-unlink-btn" id="pushToggleBtn" onclick="togglePushFront()">通知をONにする</button>
-        </div>
-        <div id="pushTestRow" style="display:none;margin-top:10px;text-align:right">
-          <button type="button" class="line-unlink-btn" onclick="sendTestPushFront()">テスト通知を送る</button>
         </div>
       </div>
 
@@ -2188,7 +1282,7 @@ window.addEventListener('load',()=>{
    NAVIGATION
 ================================= */
 const PAGES=['home','notices','search','about','principals','goals','songs',
-  'rules','special','curriculum','events',
+  'rules','special','curriculum','events','timetable',
   'council-activities','council-charter','council-rules',
   'contact','apply','mypage','coming'];
 /* 下部ナビ 5 タブ（home / rules / search / apply / mypage）に
@@ -2199,7 +1293,7 @@ const BN_MAP={
   rules:'rules',special:'rules',
   apply:'apply',mypage:'mypage',
   about:'more',principals:'more',goals:'more',songs:'more',
-  curriculum:'more',events:'more',
+  curriculum:'more',events:'more',timetable:'more',
   'council-activities':'more','council-charter':'more','council-rules':'more',
   contact:'more',coming:'more'
 };
@@ -2208,7 +1302,7 @@ const PAGE_LABELS={
   home:'ホーム',notices:'お知らせ',search:'検索',rules:'諸規定',special:'特別教育活動',
   apply:'公欠申請',mypage:'マイページ',about:'本校の沿革',
   principals:'歴代校長',goals:'就学の目標',songs:'校歌・応援歌',
-  curriculum:'教育課程',events:'年間行事','council-activities':'生徒会活動',
+  curriculum:'教育課程',events:'年間行事',timetable:'時間割','council-activities':'生徒会活動',
   'council-charter':'知道生徒会憲章','council-rules':'生徒会関係規定',
   contact:'お問い合わせ',coming:'近日公開'
 };
@@ -2216,17 +1310,14 @@ let currentPage='home';
 
 function nav(page, skipHash){
   currentPage=page;
-  // #59: ページ切替時はテキスト入力のフォーカスを外してキーボードを閉じる。
+  // ページ切替時はテキスト入力のフォーカスを外してキーボードを閉じる。
   // 閉じないまま別ページへ行くと、キーボードが残って下部ナビが
-  // 「浮き上がる」ように見えるため。
+  // 「浮き上がる」ように見えるため。復帰判定は __kbAfterNav に委譲。
   try{
     const ae=document.activeElement;
-    if(ae && (ae.tagName==='TEXTAREA' || ae.tagName==='SELECT' ||
-      (ae.tagName==='INPUT' && !['button','submit','reset','checkbox','radio','file','range','color','image'].includes((ae.type||'text').toLowerCase())) ||
-      ae.isContentEditable===true)){
-      ae.blur();
-    }
+    if(ae && window.__isTextInput && window.__isTextInput(ae)) ae.blur();
   }catch(e){/* ignore */}
+  if(window.__kbAfterNav) window.__kbAfterNav();
   PAGES.forEach(p=>{
     const el=document.getElementById('pg-'+p);
     if(el) el.classList.toggle('on',p===page);
@@ -2259,6 +1350,7 @@ function nav(page, skipHash){
     document.getElementById('sbOverlay').classList.remove('open');
   }
   closeSD();
+  if(typeof closeSettingsSheet==='function') closeSettingsSheet();
   // URLハッシュを更新（ブラウザ戻る・進む対応）
   if(!skipHash && location.hash !== '#'+page){
     history.pushState({page:page}, '', '#'+page);
@@ -2289,9 +1381,10 @@ function toggleSidebar(){
 }
 function openMore(){
   // 入力中ならキーボードを閉じてからシートを出す
-  if(document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)){
-    document.activeElement.blur();
-  }
+  try{
+    const ae=document.activeElement;
+    if(ae && window.__isTextInput && window.__isTextInput(ae)) ae.blur();
+  }catch(e){/* ignore */}
   document.getElementById('moreSheet').classList.add('open');
   document.getElementById('sheetOverlay').style.display='block';
   document.body.style.overflow='hidden';
@@ -2345,31 +1438,10 @@ document.addEventListener('keydown',e=>{
 
 /* =================================
    DARK MODE
+   実ロジックは下の type="module" 側にある「ダークモード自動判別」ブロック
+   （src/theme.js を利用）。初回描画時の適用は <head> の初期適用スクリプトが
+   行っているので、ここで <html data-theme> を触る必要はない。
 ================================= */
-let darkMode = localStorage.getItem('mito1_theme') === 'dark';
-// 初期テーマ反映（ちらつき防止のため即座に適用）
-if(darkMode){
-  document.documentElement.setAttribute('data-theme','dark');
-}
-const SUN_SVG='<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
-const MOON_SVG='<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
-function applyThemeIcon(){
-  const svg=darkMode?SUN_SVG:MOON_SVG;
-  const icon=document.getElementById('themeIcon');
-  if(icon) icon.innerHTML=svg;
-  // メニューシート内のテーマ切替も同期させる
-  const mIcon=document.getElementById('moreThemeIcon');
-  if(mIcon) mIcon.innerHTML=svg;
-  const mLbl=document.getElementById('moreThemeLbl');
-  if(mLbl) mLbl.textContent=darkMode?'ライトモード':'ダークモード';
-}
-applyThemeIcon();
-function toggleTheme(){
-  darkMode=!darkMode;
-  document.documentElement.setAttribute('data-theme',darkMode?'dark':'');
-  localStorage.setItem('mito1_theme',darkMode?'dark':'light');
-  applyThemeIcon();
-}
 
 /* =================================
    HEADER SEARCH (全文のみ)
@@ -2426,8 +1498,9 @@ function goToSearchWithQuery(q){
   closeSD();
   nav('search');
   document.getElementById('spInput').value=q;
+  // setSearchMode 内で runSearchPage が呼ばれるため、ここでの二重呼び出しはしない
+  // （二重呼び出しはリクエストを2発消費するため）
   setSearchMode('ai');
-  runSearchPage(q);
 }
 
 /* =================================
@@ -2503,9 +1576,13 @@ function runSearchPage(q){
         </div>`;
     }
   } else {
-    // AI検索
+    // AI検索（旧リクエストが残っていたら中断し、無駄な課金・描画の競合を防ぐ）
+    if(window._aiAbort) window._aiAbort.abort();
+    window._aiAbort=new AbortController();
+    const sig=window._aiAbort.signal;
     box.innerHTML=`<div class="ai-answer-box"><div class="ai-answer-label"><div class="ai-dot-spin"></div>AI が回答を生成しています...</div><div class="ai-answer-text"><div class="typing-dots"><div class="tdot"></div><div class="tdot"></div><div class="tdot"></div></div></div></div>`;
-    callGemini(q).then(ans=>{
+    callGemini(q,{signal:sig}).then(ans=>{
+      if(sig.aborted||ans==='__ABORTED__') return;
       box.innerHTML=`
         <div class="ai-answer-box">
           <div class="ai-answer-label"><div class="ai-dot-spin"></div>AI の回答</div>
@@ -2522,23 +1599,44 @@ function runSearchPage(q){
 }
 
 /* =================================
-   AI 検索（Gemini API経由）
-   
+   AI 検索（Gemini API経由・単発呼び出し）
+
    【プロンプト構成】
    1. システム指示（役割・回答形式）
    2. 全条文データ（_aiContext: ページ読み込み時にキャッシュした全文テキスト）
-   3. 質問にヒットした条文のスニペット（doSearchで上位8件）
+   3. 質問にヒットした箇所の見出しのみ（本文は全データと重複するため送らない）
    4. ユーザーの質問
+
+   最適化メモ:
+   - hitsの本文スニペットは全データと重複するため見出しのみ送る
+   - 同一質問は10分間メモリキャッシュして再送しない
+   - 連打時は runSearchPage 側で AbortController により旧リクエストを中断する
 ================================= */
 // NOTE: "hundbook" might be a typo for "handbook". Please verify against the Worker deployment.
 const AI_WORKERS_URL = 'https://mito1-hundbook.asanuma-ryuto.workers.dev';
 window._aiContext = '';
 
-async function callGemini(q){
-  // 検索ヒットした条文の本文を取得（最大8件）
-  const hits = doSearch(q).slice(0,8)
-    .map(r=>`■${r.path}「${r.title}」\n${r.snip}`)
-    .join('\n\n');
+// 同一質問の再送を避ける簡易キャッシュ（最大50件・10分TTL）
+const _aiCache = new Map();
+function _aiCacheGet(q){
+  const e=_aiCache.get(q);
+  if(!e) return null;
+  if(Date.now()-e.t>10*60*1000){_aiCache.delete(q);return null;}
+  return e.a;
+}
+function _aiCacheSet(q,a){
+  _aiCache.set(q,{a,t:Date.now()});
+  if(_aiCache.size>50) _aiCache.delete(_aiCache.keys().next().value);
+}
+
+async function callGemini(q,opts){
+  const key=q.trim();
+  const cached=_aiCacheGet(key);
+  if(cached) return cached;
+  // 検索ヒット箇所は見出しのみ（本文は全データ内に含まれるため重複送信しない）
+  const refs = doSearch(key).slice(0,8)
+    .map(r=>`・${r.path}「${r.title}」`)
+    .join('\n');
 
   // 全条文データ（_aiContext に全文をキャッシュ済み）
   const fullContext = window._aiContext || '（読み込み中）';
@@ -2553,17 +1651,18 @@ async function callGemini(q){
 【手帳の全データ】
 ${fullContext}
 
-【質問に特に関連するデータ】
-${hits || '（該当なし）'}
+【質問に関連しそうな箇所（本文は全データ内にあり）】
+${refs || '（該当なし）'}
 
 【質問】
-${q}`;
+${key}`;
 
-  try{
+  const fetchAI = async ()=>{
     const res = await fetch(AI_WORKERS_URL, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ contents:[{ parts:[{ text: prompt }] }] })
+      body: JSON.stringify({ contents:[{ parts:[{ text: prompt }] }] }),
+      signal: opts?.signal,
     });
     const text = await res.text();
     if(!res.ok){
@@ -2597,7 +1696,16 @@ ${q}`;
     }
     console.error('[AI] Unknown shape:',JSON.stringify(d).slice(0,300));
     return '回答を生成できませんでした。';
+  };
+
+  try{
+    const ans = await fetchAI();
+    // エラー文はキャッシュしない（再試行できるように）
+    if(!/^(AIサーバーエラー|AIエラー|AIに接続できません|AIモデルを利用できません|回答を生成できません)/.test(ans)) _aiCacheSet(key,ans);
+    return ans;
   }catch(e){
+    // 連打時の中断はエラー表示しない（呼び出し側で描画スキップする）
+    if(e?.name==='AbortError'||opts?.signal?.aborted) return '__ABORTED__';
     console.error('[AI] fetch error:',e);
     return `AIに接続できません: ${e.message}`;
   }
@@ -2728,6 +1836,23 @@ function isStandalone(){
   if(isStandalone()){
     // クラスをhtmlに付与 → CSSで一元管理
     document.documentElement.classList.add('pwa-mode');
+    // PWA時はアプリ操作のためピンチズームを無効化する。
+    // （ブラウザ表示ではアクセシビリティのためズーム可能のまま）
+    try{
+      const vp=document.querySelector('meta[name="viewport"]');
+      if(vp && !/user-scalable=no/.test(vp.content)){
+        vp.content+=', maximum-scale=1.0, user-scalable=no';
+      }
+    }catch(e){/* ignore */}
+    // iOS Safari は viewport の user-scalable を無視するため gesture で抑止
+    document.addEventListener('gesturestart',e=>e.preventDefault());
+    // iOS のダブルタップズーム抑止
+    let _lastTouchEnd=0;
+    document.addEventListener('touchend',e=>{
+      const now=Date.now();
+      if(now-_lastTouchEnd<300) e.preventDefault();
+      _lastTouchEnd=now;
+    },{passive:false});
     document.querySelector('.bottom-nav').style.display='block';
     const sb=document.querySelector('.sidebar');
     if(sb)sb.style.display='none';
@@ -2736,22 +1861,171 @@ function isStandalone(){
   }
 })();
 
-/* =====================================================
-   ソフトキーボード対応（#59 PWA の下部ナビ浮き上がり修正）
-   -----------------------------------------------------
-   iOS/Android の PWA（standalone）では、ソフトキーボードが
-   出ると visualViewport の高さだけが縮み、`position:fixed;
-   bottom:0` の下部ナビがキーボードの上へ「浮き上がる」。
-   キーボード表示を検知して html.kb-open を付け、CSS 側で
-   ナビを画面外へ退避させる。
+/* =================================
+   PWA: ホーム画面に追加ガイド（iPhone）
+   ---------------------------------------------------
+   iOS は beforeinstallprompt が無いため、
+   手順（共有 → ホーム画面に追加）を案内する。
+   対象: iOS（Safari/Chrome）でブラウザ表示中（standalone でない）
+  ・ブラウザに合わせて手順を出し分ける（Safari / Chrome）
+  ・シートはリロードのたびに自動表示（「今後表示しない」で抑止）
+  ・ホームにバナー表示（閉じたら7日間非表示）
+================================= */
+function isIOS(){
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS 13+
+}
+/* iOS 上のブラウザ判定（CriOS 以外は Safari 手順を案内） */
+function iosBrowser(){
+  if(/CriOS|FxiOS|EdgiOS/i.test(navigator.userAgent)) return 'chrome';
+  return 'safari';
+}
+function shouldShowInstall(){
+  if(isStandalone()) return false;              // すでにPWAで起動済み
+  if(!isIOS()) return false;                    // iPhone/iPad のみ
+  if(navigator.standalone === true) return false;
+  // 「今後表示しない」を選択済みなら表示しない
+  try{ if(localStorage.getItem('installPromptHidden')) return false; }catch(e){}
+  // ナレッジバー等の埋め込み iframe では表示しない
+  try{ if(window.self !== window.top) return false; }catch(e){ return false }
+  return true;
+}
+function dismissInstallBanner(){
+  const b=document.getElementById('installBanner');
+  if(b)b.classList.remove('show');
+  try{ localStorage.setItem('installBannerDismissedAt', String(Date.now())) }catch(e){}
+  updateTtWidgetVisibility();
+}
+/* 時間割フローティングウィジェットの表示制御:
+   ホーム画面かつインストールバナー非表示のときだけ表示する。
+   （バナー表示中に重なると右上の「閉じる」を覆ってしまうため） */
+function updateTtWidgetVisibility(){
+  const tt=document.getElementById('ttWidget');
+  if(!tt) return;
+  const onHome=currentPage==='home';
+  const bannerOn=!!(document.getElementById('installBanner')?.classList.contains('show'));
+  tt.classList.toggle('tt-hidden', !onHome || bannerOn);
+}
+/* ブラウザに合わせてシートの手順を出し分ける */
+function applyInstallSteps(){
+  const isChrome = iosBrowser() === 'chrome';
+  const safariEl=document.getElementById('installStepsSafari');
+  const chromeEl=document.getElementById('installStepsChrome');
+  const title=document.getElementById('installStepsTitle');
+  if(!safariEl||!chromeEl||!title) return;
+  safariEl.style.display=isChrome?'none':'';
+  chromeEl.style.display=isChrome?'':'none';
+  title.textContent=(isChrome?'Chrome':'Safari')+' での追加方法（約30秒）';
+}
+function openInstallSheet(mode){
+  applyInstallSteps();
+  const notice=document.getElementById('installPushNotice');
+  if(notice) notice.style.display = (mode==='push') ? '' : 'none';
+  const s=document.getElementById('installSheet');
+  const o=document.getElementById('installOverlay');
+  if(!s||!o) return;
+  s.classList.add('open');
+  o.classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeInstallSheet(){
+  const s=document.getElementById('installSheet');
+  const o=document.getElementById('installOverlay');
+  if(!s||!o) return;
+  s.classList.remove('open');
+  o.classList.remove('open');
+  document.body.style.overflow='';
+}
+/* 「今後表示しない」を選択したら閉じて、以後は表示しない */
+function neverShowInstall(){
+  closeInstallSheet();
+  const b=document.getElementById('installBanner');
+  if(b)b.classList.remove('show');
+  try{ localStorage.setItem('installPromptHidden','1') }catch(e){}
+  updateTtWidgetVisibility();
+}
+(function(){
+  if(!shouldShowInstall()) return;
+  // ホームバナー表示（7日間以内に閉じた場合は出さない）
+  try{
+    const d=localStorage.getItem('installBannerDismissedAt');
+    const banner=document.getElementById('installBanner');
+    if(banner && (!d || Date.now()-Number(d) > 7*24*60*60*1000)){
+      banner.classList.add('show');
+      updateTtWidgetVisibility();
+    }
+  }catch(e){}
+  // リロードのたびに、ローディング演出（約3.2秒）後にシートを自動表示
+  setTimeout(openInstallSheet, 4200);
+})();
 
-   #59 の反省:
-   - viewport の縮小量だけでは端末差（resizes-content 等）で
-     検知漏れがあり、マイページ等で「浮き上がり」が残った。
-   - フォーカス即退避だけでは検索を開いた瞬間にナビが
-     「消えた」ように見えた。
-   よって viewport 検知＋フォーカス検知を併用し、閉じる側は
-   アニメ終了までクラスを維持する。
+/* =================================
+   マイページ：設定シート（Issue #67）
+================================= */
+function openSettingsSheet(){
+  const s=document.getElementById('settingsSheet');
+  const o=document.getElementById('settingsOverlay');
+  if(!s||!o) return;
+  s.classList.add('open');
+  o.classList.add('open');
+  document.body.style.overflow='hidden';
+  const btn=document.querySelector('.mp-settings-btn');
+  if(btn) btn.setAttribute('aria-expanded','true');
+}
+function closeSettingsSheet(){
+  const s=document.getElementById('settingsSheet');
+  const o=document.getElementById('settingsOverlay');
+  if(!s||!o) return;
+  s.classList.remove('open');
+  o.classList.remove('open');
+  document.body.style.overflow='';
+  const btn=document.querySelector('.mp-settings-btn');
+  if(btn) btn.setAttribute('aria-expanded','false');
+}
+// Esc / スワイプダウンで閉じる（more-sheet と同じ挙動）
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&document.getElementById('settingsSheet')?.classList.contains('open')) closeSettingsSheet();
+});
+(function(){
+  const sheet=document.getElementById('settingsSheet');
+  if(!sheet) return;
+  let y0=null;
+  sheet.addEventListener('touchstart',e=>{
+    y0=e.target.closest('.settings-sheet-scroll')?null:e.touches[0].clientY;
+  },{passive:true});
+  sheet.addEventListener('touchmove',e=>{
+    if(y0===null) return;
+    const dy=e.touches[0].clientY-y0;
+    if(dy>0) sheet.style.transform=`translateY(${dy}px)`;
+  },{passive:true});
+  sheet.addEventListener('touchend',e=>{
+    if(y0===null) return;
+    const dy=(e.changedTouches[0]?.clientY??y0)-y0;
+    sheet.style.transform='';
+    y0=null;
+    if(dy>80) closeSettingsSheet();
+  });
+})();
+
+/* =====================================================
+   ソフトキーボード対応（再設計）
+   -----------------------------------------------------
+   iOS/Android の PWA ではソフトキーボード表示時に
+   `position:fixed;bottom:0` の下部ナビがキーボードの上へ
+   「浮き上がる」。キーボード表示を検知して html.kb-open を
+   付け、CSS 側でナビを画面外へ退避させる。
+
+   再設計の原則:
+   - 退避条件は「viewportの実測縮小」かつ「テキスト入力に
+     フォーカス」のAND。フォーカスだけ・縮小だけでは退避
+     しない（回転・分割表示・物理キーボードでの誤作動防止）。
+   - 基準高さは「フォーカスが無いときの最大値」で更新する。
+     従来の単調増加 max 保持は回転後に縮小と誤判定して
+     kb-open が戻らない固着バグの原因だった。
+   - blur 直後はキーボード close アニメ中も退避を維持する
+     （grace 期間）。アニメ完了後の viewport 復帰で復帰。
+   - nav() によるページ切替時は blur＋遅延再評価で、
+     別ページ・ホームに戻っても消えたままにならない。
 ===================================================== */
 (function(){
   const vv = window.visualViewport;
@@ -2759,15 +2033,15 @@ function isStandalone(){
   // キーボードと判定する最小の縮み量(px)。アドレスバーの
   // 伸縮(数十px)を誤検知しないよう十分大きめに取る。
   const KB_MIN_SHRINK = 140;
-  // blur 後にクラスを維持する時間(ms)。iOS のキーボードが
-  // 閉じ切るまでのアニメをカバーし、一時的な「浮き上がり」を防ぐ。
-  const KB_CLOSE_GRACE_MS = 450;
+  // blur 後に退避を維持する時間(ms)。iOS のキーボードが
+  // 閉じ切るまでのアニメをカバーする。
+  const KB_CLOSE_GRACE_MS = 400;
   let kbOpen = false;
-  let closeTimer = 0;
-  // キーボード無し状態の基準高さ（見た最大値）。Android の
-  // resizes-content 等で window.innerHeight 自体が縮む端末でも
-  // 検知できるよう、innerHeight とは別に保持する。
-  let baseH = vv ? vv.height : window.innerHeight;
+  let graceTimer = 0;
+  // キーボード無し状態の基準高さ。フォーカス無し時の最大値で更新。
+  let baseInnerH = window.innerHeight;
+  let baseVvH = vv ? vv.height : window.innerHeight;
+  let lastWidth = window.innerWidth;
 
   function setKb(open){
     if(open === kbOpen) return;
@@ -2775,62 +2049,6 @@ function isStandalone(){
     root.classList.toggle('kb-open', open);
   }
 
-  function isCoarseOrPwa(){
-    return root.classList.contains('pwa-mode')
-      || window.matchMedia('(pointer:coarse)').matches;
-  }
-
-  function viewportShrunk(){
-    if(!vv) return false;
-    // 基準高さは縮む前の最大値を覚える（回転・リサイズの拡大には追従）
-    if(vv.height > baseH) baseH = vv.height;
-    // layout viewport と visual viewport の両方と比較する。
-    // iOS PWA: innerHeight は変わらず vv.height だけ縮む。
-    // Android(resizes-content): 両方縮むため baseH との差で見る。
-    const shrinkVsInner = window.innerHeight - (vv.height + vv.offsetTop);
-    const shrinkVsBase = baseH - vv.height;
-    return shrinkVsInner > KB_MIN_SHRINK || shrinkVsBase > KB_MIN_SHRINK;
-  }
-
-  function refreshByViewport(){
-    if(viewportShrunk()){
-      if(closeTimer){ clearTimeout(closeTimer); closeTimer = 0; }
-      setKb(true);
-    }else if(!isTextInput(document.activeElement)){
-      // フォーカスが残っている間は閉じない（入力移動時のちらつき防止）
-      setKb(false);
-    }
-  }
-
-  // --- visualViewport が使える環境（iOS 13+ / Chrome） ---
-  if(vv){
-    let raf = 0;
-    const onViewport = () => {
-      if(raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        refreshByViewport();
-      });
-    };
-    vv.addEventListener('resize', onViewport);
-    vv.addEventListener('scroll', onViewport);
-    onViewport();
-  }
-  window.addEventListener('resize', () => {
-    if(vv) return;
-    // vv 無し環境のフォールバック: 狭くなったら開いたとみなす
-    setKb(window.innerHeight < baseH - KB_MIN_SHRINK);
-  });
-  window.addEventListener('orientationchange', () => {
-    setTimeout(() => {
-      baseH = vv ? vv.height : window.innerHeight;
-      refreshByViewport();
-    }, 300);
-  });
-
-  // --- フォーカスの有無で判定 ---
-  // visualViewport が無い/効かない端末でも、テキスト入力に
-  // フォーカスが当たっている間はナビを退避させる。
   const isTextInput = (el) => {
     if(!el) return false;
     const tag = el.tagName;
@@ -2841,42 +2059,108 @@ function isStandalone(){
     }
     return el.isContentEditable === true;
   };
-  // nav() より前に定義されるため、先に公開しておく（hoisting 対策）
   window.__isTextInput = isTextInput;
+
+  function viewportShrunk(){
+    if(vv){
+      const shrinkVv = baseVvH - vv.height;
+      const shrinkInner = baseInnerH - window.innerHeight;
+      const shrinkVsInner = window.innerWidth === lastWidth
+        ? window.innerHeight - (vv.height + vv.offsetTop)
+        : -Infinity;
+      return shrinkVv > KB_MIN_SHRINK || shrinkInner > KB_MIN_SHRINK || shrinkVsInner > KB_MIN_SHRINK;
+    }
+    return (baseInnerH - window.innerHeight) > KB_MIN_SHRINK;
+  }
+
+  function refresh(){
+    const shrunk = viewportShrunk();
+    const focused = isTextInput(document.activeElement);
+    if(shrunk && focused){
+      if(graceTimer){ clearTimeout(graceTimer); graceTimer = 0; }
+      setKb(true);
+    }else if(!shrunk && !focused){
+      if(graceTimer){ clearTimeout(graceTimer); graceTimer = 0; }
+      setKb(false);
+    }else if(!shrunk && focused){
+      // デスクトップ物理キーボード等: 縮小なし＝退避不要
+      setKb(false);
+    }
+    // shrunk && !focused ＝ close アニメ中: grace に任せて維持
+  }
+  window.__kbRefresh = refresh;
+
+  function trackBaseline(){
+    // フォーカス中は基準を更新しない（キーボード分を基準にしない）
+    if(isTextInput(document.activeElement)) return;
+    if(vv && vv.height > baseVvH) baseVvH = vv.height;
+    if(window.innerHeight > baseInnerH) baseInnerH = window.innerHeight;
+    // 幅が変わった＝回転・分割とみなし、縮小判定をリセット
+    if(window.innerWidth !== lastWidth){
+      lastWidth = window.innerWidth;
+      baseInnerH = window.innerHeight;
+      if(vv) baseVvH = vv.height;
+      setKb(false);
+    }
+  }
+
+  if(vv){
+    let raf = 0;
+    const onViewport = () => {
+      if(raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        trackBaseline();
+        refresh();
+      });
+    };
+    vv.addEventListener('resize', onViewport);
+    vv.addEventListener('scroll', onViewport);
+    onViewport();
+  }
+  window.addEventListener('resize', () => {
+    trackBaseline();
+    refresh();
+  });
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => {
+      lastWidth = window.innerWidth;
+      baseInnerH = window.innerHeight;
+      baseVvH = vv ? vv.height : window.innerHeight;
+      refresh();
+    }, 350);
+  });
 
   document.addEventListener('focusin', e => {
     if(!isTextInput(e.target)) return;
-    if(closeTimer){ clearTimeout(closeTimer); closeTimer = 0; }
+    if(graceTimer){ clearTimeout(graceTimer); graceTimer = 0; }
     root.classList.add('kb-focus');
-    // タッチ/PWA ではフォーカス＝ほぼキーボードが出るため先に退避。
-    // デスクトップの物理キーボードでは viewport が縮まないので退避しない。
-    if(isCoarseOrPwa()) setKb(true);
+    // 縮小が来たら退避する。ここでは即退避しない
+    // （フォーカスだけで消えたに見える誤作動の修正）。
+    refresh();
   });
-  function scheduleFocusOut(){
-    if(closeTimer) clearTimeout(closeTimer);
-    closeTimer = setTimeout(() => {
-      closeTimer = 0;
+  document.addEventListener('focusout', () => {
+    if(graceTimer) clearTimeout(graceTimer);
+    graceTimer = setTimeout(() => {
+      graceTimer = 0;
       if(!isTextInput(document.activeElement)){
         root.classList.remove('kb-focus');
-        // viewport がまだ縮んでいたら（閉じアニメ中）は維持する
+        // viewport が復帰していれば表示に戻す。
+        // アニメ中（まだ縮小）なら維持し、次の resize で戻す。
         if(!viewportShrunk()) setKb(false);
-        else{
-          // 念のため再確認（アニメ完了後に外す）
-          closeTimer = setTimeout(() => {
-            closeTimer = 0;
-            if(!viewportShrunk() && !isTextInput(document.activeElement)){
-              root.classList.remove('kb-focus');
-              setKb(false);
-            }
-          }, KB_CLOSE_GRACE_MS);
-        }
       }
-    }, 60);
-  }
-  document.addEventListener('focusout', scheduleFocusOut);
+    }, KB_CLOSE_GRACE_MS);
+  });
 
-  // ナビ内のボタンを押した瞬間にフォーカスが外れて
-  // ナビが動くのを防ぐため、押下時はフォーカスを先に外す。
+  // ページ切替時はキーボードを閉じて再評価（消えたまま防止）
+  window.__kbAfterNav = () => {
+    root.classList.remove('kb-focus');
+    setTimeout(refresh, 120);
+    setTimeout(refresh, 550);
+  };
+
+  // ナビ内のボタンを押した瞬間にフォーカスを先に外す。
+  // （キーボード持ち越しによる別ページでの浮き上がり防止）
   document.querySelector('.bottom-nav')?.addEventListener('pointerdown', () => {
     if(isTextInput(document.activeElement)) document.activeElement.blur();
   });
@@ -2911,10 +2195,12 @@ if('serviceWorker' in navigator){
 import { loadAllData } from '/src/main.js'
 import { db } from '/src/firebase.js'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
-import { onAuth, getCurrentProfile, logout, getTeacherDirectory, ensureUserDoc } from '/src/auth.js'
+import { onAuth, getCurrentProfile, logout, getTeacherDirectory, ensureUserDoc,
+  linkGoogleAccount, unlinkGoogleAccount, isGoogleLinked } from '/src/auth.js'
 import { createCase, getMyCases, deleteCaseByStudent } from '/src/cases.js'
 import { canUseTeacherSuggest, canAccessAdminPanel, profileBadges, approvalNotice } from '/src/roles.js'
-import { startLineLink, unlinkLine, isLinked } from '/src/line.js'
+import { classLabel } from '/src/classOptions.js'
+import { beginLineLink, watchLineSession, completeLineLink, cancelLineSession, cleanupLineSessions, unlinkLine, isLinked } from '/src/line.js'
 import {
   fetchAnnouncements, visibleAnnouncements, categoryMeta, toMillis,
   getReadIds, getLastSeenMs, isUnread, countUnread,
@@ -2925,8 +2211,15 @@ import {
 } from '/src/featureFlags.js'
 import {
   pushAvailability, getPushState,
-  subscribePush, unsubscribePush, sendTestPush,
+  subscribePush, unsubscribePush,
+  setNotificationPrefs, getNotificationPrefs,
+  NOTIFICATION_TYPES, DEFAULT_NOTIFICATION_PREFS, normalizeNotificationPrefs,
 } from '/src/push.js'
+import {
+  THEME_STORAGE_KEY, THEME_MODES, RESOLVED_THEMES, PREFERS_DARK_QUERY, THEME_COLORS,
+  THEME_MODE_HINTS, normalizeThemeMode, resolveThemeMode, nextThemeLabel, themeModeLabel,
+  themeToggleIcon, isPrefersDark,
+} from '/src/theme.js'
 
 loadAllData().catch(e => console.error('[Firestore]', e))
 
@@ -2937,11 +2230,104 @@ window._fsCollection        = collection
 window._fsServerTimestamp   = serverTimestamp
 
 // =============================================
+// ダークモード自動判別（Issue #103）
+// =============================================
+// テーマ指定は3通り。
+//   auto （既定）: 端末のダークモード設定（prefers-color-scheme）に追従する
+//   light        : 常にライトモード
+//   dark         : 常にダークモード
+// localStorage（mito1_theme）に保存し、端末側の設定が変わったら自動で追従する。
+// 最初の描画時点の適用は <head> の初期適用スクリプトが担当している（ちらつき防止）。
+let _themeMode = normalizeThemeMode(readStoredTheme())
+let _prefersDark = isPrefersDark()
+
+function readStoredTheme() {
+  try { return localStorage.getItem(THEME_STORAGE_KEY) } catch { return null }
+}
+function writeStoredTheme(mode) {
+  // 保存できなくても表示は切り替わるので、失敗してもエラーにはしない
+  try { localStorage.setItem(THEME_STORAGE_KEY, mode) } catch { /* ignore */ }
+}
+
+// 実際に表示するテーマ（'light' | 'dark'）を求める
+function currentTheme() {
+  return resolveThemeMode(_themeMode, _prefersDark)
+}
+
+// <html data-theme> と PWA のステータスバー色を現在の表示テーマに合わせる
+function applyTheme() {
+  const resolved = currentTheme()
+  document.documentElement.setAttribute('data-theme', resolved)
+  const meta = document.getElementById('themeColorMeta')
+  if (meta) meta.setAttribute('content', THEME_COLORS[resolved])
+  applyThemeIcon()
+}
+
+// テーマ切替UI（ヘッダー／moreシート／設定シート）の表示を同期する
+function applyThemeIcon() {
+  const resolved = currentTheme()
+  const svg = themeToggleIcon(resolved)
+  // ヘッダーの切替ボタン
+  const icon = document.getElementById('themeIcon')
+  if (icon) icon.innerHTML = svg
+  // moreシートの切替項目（ラベルは「次に切り替えると何になるか」を示す）
+  const mIcon = document.getElementById('moreThemeIcon')
+  if (mIcon) mIcon.innerHTML = svg
+  const mLbl = document.getElementById('moreThemeLbl')
+  if (mLbl) mLbl.textContent = nextThemeLabel(resolved)
+  // 設定シート: 現在のテーマ指定をアイコンとラベルで示す
+  const sIcon = document.getElementById('settingsThemeIcon')
+  if (sIcon) sIcon.innerHTML = svg
+  const sLbl = document.getElementById('settingsThemeLbl')
+  if (sLbl) sLbl.textContent = themeModeLabel(_themeMode, _prefersDark)
+  // 設定シートの「自動 / ライト / ダーク」選択
+  for (const btn of document.querySelectorAll('[data-theme-mode]')) {
+    const on = btn.getAttribute('data-theme-mode') === _themeMode
+    btn.classList.toggle('on', on)
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+  }
+  const hint = document.getElementById('themeModeHint')
+  if (hint) hint.textContent = THEME_MODE_HINTS[_themeMode]
+}
+
+// テーマ指定を書き換えて反映する。ヘッダー／moreシートの2値切替もこれを使う。
+function setThemeMode(mode) {
+  _themeMode = normalizeThemeMode(mode)
+  writeStoredTheme(_themeMode)
+  applyTheme()
+}
+
+// ヘッダー／moreシート: 現在と逆のテーマを明示的に設定する。
+// 「端末設定に追従（＝自動）」に戻すには設定シートのテーマ選択を使う。
+window.toggleTheme = function () {
+  setThemeMode(currentTheme() === RESOLVED_THEMES.DARK ? THEME_MODES.LIGHT : THEME_MODES.DARK)
+}
+window.setThemeMode = setThemeMode
+
+// 端末のダークモード設定の変化（OS側を切り替えたときなど）に追従する
+if (typeof window.matchMedia === 'function') {
+  const mql = window.matchMedia(PREFERS_DARK_QUERY)
+  const onPrefersChange = e => {
+    _prefersDark = e.matches === true
+    applyTheme()
+  }
+  if (typeof mql.addEventListener === 'function') mql.addEventListener('change', onPrefersChange)
+  else if (typeof mql.addListener === 'function') mql.addListener(onPrefersChange)  // 旧Safari
+}
+
+applyTheme()
+
+// =============================================
 // 認証状態管理
 // =============================================
 let _currentUser    = null
 let _currentProfile = null
 let _authReady      = false
+
+// LINE連携セッション（ポーリング）の状態
+let _lineSessionState = null
+let _lineSessionUnsub = null
+let _lineSessionTimer = null
 
 onAuth(async user => {
   _currentUser = user
@@ -2990,6 +2376,9 @@ onAuth(async user => {
       window._pendingNav = pending
     }
   }
+
+  // 放置された古いLINE連携セッションの掃除（fire-and-forget）
+  if (user) cleanupLineSessions(user.uid)
 })
 
 function updateAuthUI() {
@@ -3012,6 +2401,8 @@ function updateAuthUI() {
     const linked = document.getElementById('lineLinkedCard')
     if (banner) banner.style.display = 'none'
     if (linked) linked.style.display = 'none'
+    const gCard = document.getElementById('googleLinkCard')
+    if (gCard) gCard.style.display = 'none'
     const betaCard = document.getElementById('betaFeaturesCard')
     if (betaCard) betaCard.style.display = 'none'
   }
@@ -3023,7 +2414,8 @@ function updateAuthUI() {
     if (name) name.textContent = profile.name || _currentUser.email
     if (info) {
       const g = profile.grade, c = profile.class, n = profile.number
-      info.textContent = (g && c) ? `${g}年${c}組${n ? ' ' + n + '番' : ''}` : _currentUser.email
+      const clsLabel = classLabel(c)
+      info.textContent = (g && clsLabel) ? `${g}年${clsLabel}${n ? ' ' + n + '番' : ''}` : _currentUser.email
     }
 
     // ロール／承認状態バッジ
@@ -3032,8 +2424,14 @@ function updateAuthUI() {
     // LINE連携の状態表示
     renderLineLinkUI(profile)
 
+    // Google連携の状態表示（β: featureFlags 'google-auth' で厳密にゲート）
+    renderGoogleLinkUI(profile)
+
     // PWAプッシュ通知の状態表示
     renderPushUI()
+
+    // 受け取る通知の選択肢（プッシュON / LINE連携済みのときに表示）
+    renderNotifyPrefs()
 
     // βテスト中の機能一覧（Issue #53: 対象者のみ表示）
     renderBetaFeatures(profile)
@@ -3059,18 +2457,23 @@ function updateAuthUI() {
 // =============================================
 // 機能フラグによる表示ゲート（Issue #53）
 // ・公欠申請: 対象外はナビを隠し、ページにはβ案内を表示（フォーム・ログイン誘導は出さない）
+// ・時間割: 対象外はナビ・ホームカード・画像を隠し、ページにはβ案内を表示
 // ・マイページの「新しい申請」ボタンも対象外では隠す
 // ※ 承認側（approve.html / teacher.html）はβ期間中も動かす必要があるため対象外
 // =============================================
 async function applyFeatureGates(profile, { loggedIn } = {}) {
   const isLoggedIn = loggedIn ?? !!_currentUser
   let applyVisible = true
+  let timetableVisible = false
   try {
     const flags = await fetchFeatureFlags()
     applyVisible = isFlagEnabled(flags, 'absence-request', profile)
+    timetableVisible = isFlagEnabled(flags, 'timetable', profile)
   } catch {
-    // 取得失敗時は従来通り表示（手帳本体の利用を妨げない）
+    // 取得失敗時は従来通り表示（手帳本体の利用を妨げない）。
+    // 時間割のみ既定βのため、取得失敗時は非表示側に倒す。
     applyVisible = true
+    timetableVisible = false
   }
 
   // ナビ（サイドバー・下部タブ）の公欠申請エントリ
@@ -3081,6 +2484,19 @@ async function applyFeatureGates(profile, { loggedIn } = {}) {
   // マイページの「新しい申請」ボタン
   const newApplyBtn = document.getElementById('mypageNewApplyBtn')
   if (newApplyBtn) newApplyBtn.style.display = applyVisible ? '' : 'none'
+
+  // 時間割（β）: ナビ・フローティングウィジェット・ページ本体をゲート
+  document.querySelectorAll('[data-p="timetable"],[data-mp="timetable"]').forEach(el => {
+    el.style.display = timetableVisible ? '' : 'none'
+  })
+  const ttNotice = document.getElementById('timetableBetaNotice')
+  const ttImages = document.getElementById('timetableImagesFront')
+  const ttHistory = document.getElementById('timetableHistoryWrap')
+  if (ttNotice) ttNotice.style.display = timetableVisible ? 'none' : ''
+  if (ttImages) ttImages.style.display = timetableVisible ? '' : 'none'
+  if (ttHistory) ttHistory.style.display = timetableVisible ? '' : 'none'
+  // β通過時のみ画像を先読み（対象外のユーザーには画像バイトを取得させない）
+  if (timetableVisible && window.renderTimetableImages) window.renderTimetableImages()
 
   // 公欠申請ページ本体
   const betaNotice = document.getElementById('applyBetaNotice')
@@ -3174,6 +2590,7 @@ function renderLineLinkUI(profile) {
   const banner    = document.getElementById('lineLinkBanner')
   const linkedBox = document.getElementById('lineLinkedCard')
   if (!banner || !linkedBox) return
+  hideLineLinkWaiting()
 
   if (isLinked(profile)) {
     banner.style.display    = 'none'
@@ -3190,14 +2607,203 @@ function renderLineLinkUI(profile) {
     banner.style.display    = ''
     linkedBox.style.display = 'none'
   }
+
+  // 受け取る通知の選択肢の表示条件（LINE連携有無）が変わったので再描画
+  renderNotifyPrefs()
 }
 
-// バナークリック → LINEの認可画面へ
-window.startLineLinkFront = function() {
+// =============================================
+// マイページ：Google連携（β: featureFlags 'google-auth'）
+// ・status が beta/enabled かつ自分に公開されている場合のみカード表示
+// ・disabled／対象外／未ログイン時はカードごと非表示
+// ・新規登録は不可。既存アカウントへの後付け連携のみ
+// =============================================
+async function renderGoogleLinkUI(profile) {
+  const card = document.getElementById('googleLinkCard')
+  if (!card) return
+  card.style.display = 'none'
+  if (!_currentUser) return
+  try {
+    const flags = await fetchFeatureFlags()
+    if (!isFlagEnabled(flags, 'google-auth', profile)) return
+  } catch {
+    return // 取得失敗時は非表示（手帳本体の閲覧を妨げない）
+  }
+
+  const linked = isGoogleLinked(_currentUser)
+  const badge  = document.getElementById('googleLinkBadge')
+  const nameEl = document.getElementById('googleLinkName')
+  const subEl  = document.getElementById('googleLinkSub')
+  const linkBtn   = document.getElementById('googleLinkBtn')
+  const unlinkBtn = document.getElementById('googleUnlinkBtn')
+
+  if (linked) {
+    const g = (_currentUser.providerData || []).find(p => p?.providerId === 'google.com')
+    if (badge) { badge.textContent = '✓ Google連携済み'; badge.style.background = 'rgba(52,168,83,.14)'; badge.style.color = '#1e7e34' }
+    if (nameEl) nameEl.textContent = g?.email || ''
+    if (subEl) subEl.textContent = '次回からログイン画面のGoogleボタンでログインできます。'
+    if (linkBtn) linkBtn.style.display = 'none'
+    if (unlinkBtn) unlinkBtn.style.display = ''
+  } else {
+    if (badge) { badge.textContent = 'Google未連携'; badge.style.background = 'rgba(66,133,244,.12)'; badge.style.color = '#1a56c4' }
+    if (nameEl) nameEl.textContent = ''
+    if (subEl) subEl.textContent = '学校Googleアカウント（@mito1-h.ibk.ed.jp）を連携すると、次回からGoogleボタンでログインできます。'
+    if (linkBtn) { linkBtn.style.display = ''; linkBtn.disabled = false; linkBtn.textContent = '連携する' }
+    if (unlinkBtn) unlinkBtn.style.display = 'none'
+  }
+  card.style.display = ''
+}
+
+// 連携開始（ポップアップで学校Googleを選択）
+window.linkGoogleFront = async function() {
+  if (!_currentUser) { location.href = '/auth.html'; return }
+  const btn = document.getElementById('googleLinkBtn')
+  if (btn) { btn.disabled = true; btn.textContent = '連携中...' }
+  try {
+    const { getDoc, doc } = await import('firebase/firestore')
+    const googleEmail = await linkGoogleAccount()
+    // プロフィールを再取得して表示を更新
+    try {
+      const snap = await getDoc(doc(window._db, 'users', _currentUser.uid))
+      if (snap.exists()) _currentProfile = { uid: _currentUser.uid, email: _currentUser.email, ...snap.data() }
+    } catch { /* ignore */ }
+    renderGoogleLinkUI(_currentProfile || {})
+    alert('Google連携が完了しました（' + googleEmail + '）。次回からGoogleボタンでログインできます')
+  } catch (e) {
+    const msg = e?.code === 'google/domain-not-allowed'
+      ? '学校のGoogleアカウント（@mito1-h.ibk.ed.jp）のみ連携できます'
+      : e?.code === 'auth/popup-closed-by-user'
+        ? 'Googleの選択画面が閉じられました。もう一度お試しください'
+        : '連携に失敗しました: ' + (e?.message || String(e))
+    alert(msg)
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '連携する' }
+  }
+}
+
+// 連携解除（パスワードログインは残る）
+window.unlinkGoogleFront = async function() {
+  if (!_currentUser) return
+  if (!confirm('Google連携を解除しますか？\n以降、Googleボタンでのログインは使えなくなります（パスワードでは引き続きログインできます）。')) return
+
+  const btn = document.getElementById('googleUnlinkBtn')
+  if (btn) { btn.disabled = true; btn.textContent = '解除中...' }
+  try {
+    await unlinkGoogleAccount()
+    if (_currentProfile) {
+      delete _currentProfile.authProvider
+      delete _currentProfile.photoURL
+      delete _currentProfile.googleLinkedAt
+    }
+    // AuthトークンのproviderData反映を待って再描画
+    await _currentUser.reload().catch(() => {})
+    renderGoogleLinkUI(_currentProfile || {})
+    alert('Google連携を解除しました')
+  } catch (e) {
+    alert('連携の解除に失敗しました: ' + (e?.message || String(e)))
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '連携を解除' }
+  }
+}
+// =============================================
+// LINE連携: バナークリック → セッション作成 → 別タブで認可 → ポーリング
+// （PWA/別タブ分断を解消するため、元の画面を遷移させずに待機する）
+// =============================================
+window.startLineLinkFront = async function() {
   if (!_currentUser) { location.href = '/auth.html'; return }
   const btn = document.getElementById('lineLinkBtn')
   if (btn) btn.disabled = true
-  startLineLink('/#mypage')
+
+  try {
+    const { state, authorizeUrl } = await beginLineLink(_currentUser.uid)
+    _lineSessionState = state
+    showLineLinkWaiting(authorizeUrl)
+
+    // 認可画面を新しいタブ/ウィンドウで開く（元のタブ/PWAは残して監視）
+    const win = window.open(authorizeUrl, '_blank')
+    if (win) {
+      // 自動で開けた場合も、ユーザーが閉じてしまったとき用にリンクは残す
+      const link = document.getElementById('lineLinkWaitingUrl')
+      if (link) link.textContent = 'LINE連携ページを開き直す'
+    }
+
+    // セッション監視（コールバック側が done を書き込むのを待つ）
+    _lineSessionUnsub = watchLineSession(state, {
+      onDone: async (d) => {
+        try {
+          await completeLineLink(_currentUser.uid, state, d)
+          if (_currentProfile) {
+            _currentProfile.lineUserId      = d.lineUserId
+            _currentProfile.lineDisplayName = d.displayName || ''
+            _currentProfile.linePictureUrl  = d.pictureUrl  || ''
+            _currentProfile.lineNotify      = true
+          }
+          stopLineLinkWatch()
+          hideLineLinkWaiting()
+          renderLineLinkUI(_currentProfile || {})
+          window.refreshMypageDot?.()
+          alert('LINE連携が完了しました！')
+        } catch (e) {
+          console.error('[line] complete failed:', e)
+          stopLineLinkWatch()
+          hideLineLinkWaiting()
+          renderLineLinkUI(_currentProfile || {})
+          alert('LINE連携の完了処理に失敗しました: ' + (e?.message || String(e)))
+        }
+      },
+      onError: (err) => {
+        console.error('[line] watch error:', err)
+        stopLineLinkWatch()
+        hideLineLinkWaiting()
+        if (btn) btn.disabled = false
+      },
+    })
+
+    // タイムアウト（10分）でセッションを破棄して終了
+    _lineSessionTimer = setTimeout(() => {
+      if (_lineSessionState === state) {
+        cancelLineSession(state).catch(() => {})
+        stopLineLinkWatch()
+        hideLineLinkWaiting()
+        if (btn) btn.disabled = false
+        alert('LINE連携がタイムアウトしました。もう一度お試しください。')
+      }
+    }, 10 * 60 * 1000)
+  } catch (e) {
+    console.error('[line] start failed:', e)
+    hideLineLinkWaiting()
+    if (btn) btn.disabled = false
+    alert('LINE連携の開始に失敗しました: ' + (e?.message || String(e)))
+  }
+}
+
+// キャンセル
+window.cancelLineLinkFront = function() {
+  if (_lineSessionState) cancelLineSession(_lineSessionState).catch(() => {})
+  stopLineLinkWatch()
+  hideLineLinkWaiting()
+  const btn = document.getElementById('lineLinkBtn')
+  if (btn) btn.disabled = false
+}
+
+function showLineLinkWaiting(authorizeUrl) {
+  const banner   = document.getElementById('lineLinkBanner')
+  const waiting  = document.getElementById('lineLinkWaiting')
+  if (banner)  banner.style.display  = 'none'
+  if (waiting) waiting.style.display = ''
+  const link = document.getElementById('lineLinkWaitingUrl')
+  if (link && authorizeUrl) link.href = authorizeUrl
+}
+
+function hideLineLinkWaiting() {
+  const waiting = document.getElementById('lineLinkWaiting')
+  if (waiting) waiting.style.display = 'none'
+}
+
+function stopLineLinkWatch() {
+  if (_lineSessionUnsub) { try { _lineSessionUnsub() } catch {} _lineSessionUnsub = null }
+  if (_lineSessionTimer) { clearTimeout(_lineSessionTimer); _lineSessionTimer = null }
+  _lineSessionState = null
 }
 
 // 連携解除
@@ -3376,13 +2982,18 @@ window.submitApply = async function() {
   if (!supervisorEmail.includes('@')) { showErr('顧問のメールアドレスを正しく入力してください'); return }
   if (!homeRoomEmail.includes('@'))   { showErr('担任のメールアドレスを正しく入力してください'); return }
 
-  // 確認ダイアログ
+  // 確認ダイアログ（Issue #61: 登録済みの先生は名前付きで表示）
   const datesStr = dates.join('、')
   const reasonDisplay = reasonDetail ? `${reason}（${reasonDetail}）` : reason
+  const dirForConfirm = await loadTeacherDirectory()
+  const nameForConfirm = (email) => {
+    const hit = (dirForConfirm || []).find(t => String(t.email || '').toLowerCase() === String(email || '').toLowerCase())
+    return (hit && hit.name && hit.name !== email) ? `${hit.name}（${email}）` : email
+  }
   const ok = confirm(
     `以下の内容で申請します。\n\n` +
     `件名: ${title}\n公欠日: ${datesStr}\n事由: ${reasonDisplay}\n` +
-    `顧問: ${supervisorEmail}\n担任: ${homeRoomEmail}\n\nよろしいですか？`
+    `顧問: ${nameForConfirm(supervisorEmail)}\n担任: ${nameForConfirm(homeRoomEmail)}\n\nよろしいですか？`
   )
   if (!ok) return
 
@@ -3391,11 +3002,17 @@ window.submitApply = async function() {
   btn.textContent = '送信中...'
 
   try {
+    const nameForSave = (email) => {
+      const hit = (dirForConfirm || []).find(t => String(t.email || '').toLowerCase() === String(email || '').toLowerCase())
+      return (hit && hit.name) ? hit.name : ''
+    }
     const result = await createCase({
       studentId:      _currentUser.uid,
       studentName:    (_currentProfile && _currentProfile.name) || _currentUser.email,
       studentEmail:   _currentUser.email,
       title, reason, reasonDetail, dates, supervisorEmail, homeRoomEmail,
+      supervisorName: nameForSave(supervisorEmail),
+      homeRoomName:   nameForSave(homeRoomEmail),
     })
     document.getElementById('applyForm').style.display = 'none'
     document.getElementById('applyDone').style.display = ''
@@ -3407,12 +3024,20 @@ window.submitApply = async function() {
         warn.className = 'email-warn'
         warn.style.cssText = 'font-size:12px;color:#856404;background:#fff3cd;padding:10px 14px;border-radius:8px;margin-top:12px;text-align:left'
 
-        let errorDetail = result.emailError || ''
-        if (errorDetail.includes('RESEND_FROM is not set')) {
-          errorDetail = 'RESEND_FROM が設定されていません。onboarding@resend.dev は Resend アカウント所有者への送信のみ可能です。ドメイン認証を完了し、環境変数を設定してください。'
-        }
+        // Workers が返す hint（日本語の対処法）を最優先で表示する。
+        // hint が無い場合のみ生のエラー本文を出す。
+        // 生徒には技術的な詳細より「次に何をすればよいか」が重要なので、
+        // 先生への連絡を促す文言を必ず添える。
+        const esc = (s) => String(s || '')
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const detailText = result.emailHint || result.emailError || ''
 
-        warn.innerHTML = `⚠️ 顧問への承認依頼メールの自動送信に失敗しました。<br>申請データは保存済みです。顧問の先生に直接ご連絡ください。<br><span style="font-size:11px;color:#666;margin-top:4px;display:block">${errorDetail}</span>`
+        warn.innerHTML =
+          '⚠️ 顧問への承認依頼メールの自動送信に失敗しました。<br>' +
+          '申請データは保存済みです。顧問の先生に直接ご連絡ください。' +
+          (detailText
+            ? `<span style="font-size:11px;color:#666;margin-top:6px;display:block">${esc(detailText)}</span>`
+            : '')
         document.getElementById('applyDone').querySelector('.card').appendChild(warn)
       }
     }
@@ -3444,6 +3069,24 @@ window.resetApply = function() {
   const btn = document.getElementById('applySubmitBtn')
   btn.disabled = false
   btn.textContent = '申請する'
+}
+
+// =============================================
+// Issue #32: 公欠期間の状態判定
+// 申請済みの日付リストと本日の日付を比較し、
+// 「期間前 / 期間中 / 期間終了」を判定する。
+// 日付は "YYYY-MM-DD" 形式の文字列比較でOK（ISO順=辞書順）。
+// =============================================
+function getCasePeriodState(dates) {
+  if (!dates || !dates.length) return 'none'
+  const sorted = [...dates].filter(Boolean).sort()
+  if (!sorted.length) return 'none'
+  const todayStr = new Date().toLocaleDateString('sv-SE') // YYYY-MM-DD（ローカル日付）
+  const first = sorted[0]
+  const last  = sorted[sorted.length - 1]
+  if (todayStr < first) return 'upcoming'
+  if (todayStr > last)  return 'ended'
+  return 'ongoing'
 }
 
 // =============================================
@@ -3479,6 +3122,25 @@ window.loadMyCases = async function() {
     const cases = await getMyCases(uid)
     // 下部ナビのマイページに「未処理あり」ドットを出す
     updateMypageDot(cases)
+    // Issue #61: 誰に申請したかを表示するため先生名を解決
+    // （登録があれば名前、なければメールアドレス表示。取得失敗時はメールのみ）
+    let teacherNameByEmail = new Map()
+    try {
+      const dir = await loadTeacherDirectory()
+      teacherNameByEmail = new Map(
+        (dir || []).map(t => [String(t.email || '').toLowerCase(), t.name || ''])
+      )
+    } catch (e) {
+      console.warn('[mypage] teacher directory lookup failed:', e)
+    }
+    const teacherLabel = (email, storedName) => {
+      const em = String(email || '')
+      if (!em) return ''
+      if (storedName && storedName !== em) return `${storedName}（${em}）`
+      const name = teacherNameByEmail.get(em.toLowerCase())
+      if (name && name !== em) return `${name}（${em}）`
+      return em
+    }
     if (!cases.length) {
       el.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-3);font-size:13px">申請履歴はありません</div>'
       return
@@ -3487,6 +3149,11 @@ window.loadMyCases = async function() {
     el.innerHTML = cases.map(c => {
       const datesStr = (c.dates || []).join('、')
       const st = c.status
+      const supervisorLabel = teacherLabel(c.supervisorEmail, c.supervisorName)
+      const homeRoomLabel = teacherLabel(c.homeRoomEmail, c.homeRoomName)
+      const destLine = (supervisorLabel || homeRoomLabel)
+        ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:2px">👨‍🏫 顧問: ${escHtml(supervisorLabel || '—')} ／ 担任: ${escHtml(homeRoomLabel || '—')}</div>`
+        : ''
       const steps = [
         { label:'申請',     done: true,                                             active: false },
         { label:'顧問承認', done: ['pending_homeroom','approved'].includes(st),     active: st==='pending_supervisor' },
@@ -3496,15 +3163,24 @@ window.loadMyCases = async function() {
       const rejected = st === 'rejected'
       const canDelete = st === 'pending_supervisor'
 
+      // Issue #32: 承認完了後の公欠期間の状態（期間前／期間中／期間終了）を判定し、
+      // カードの見た目（ハイライト／グレーアウト）と期間バッジに反映する。
+      const periodState = st === 'approved' ? getCasePeriodState(c.dates) : 'none'
+      const cardStateClass = periodState === 'ongoing' ? ' is-ongoing' : periodState === 'ended' ? ' is-ended' : ''
+      const periodBadge =
+        periodState === 'ongoing' ? '<span class="mp-case-period-badge">🔵 公欠期間中</span>' :
+        periodState === 'ended'   ? '<span class="mp-case-period-badge ended">記録（期間終了）</span>' :
+        ''
+
       const progressBar = rejected
         ? `<div style="margin:12px 0;font-size:11.5px;color:#721c24;background:#f8d7da;padding:8px 12px;border-radius:6px">
-             ❌ 差し戻されました${c.rejectedReason ? '：' + c.rejectedReason : ''}
+             ❌ 差し戻されました${c.rejectedReason ? '：' + escHtml(c.rejectedReason) : ''}
            </div>`
         : `<div style="display:flex;margin:14px 0 4px;gap:0">
              ${steps.map(s=>`
-               <div style="flex:1;text-align:center">
-                 <div style="height:4px;border-radius:2px;margin-bottom:5px;background:${s.done?'var(--navy)':s.active?'#ffc107':'var(--border)'}"></div>
-                 <span style="font-size:10px;font-weight:${s.done||s.active?'700':'400'};color:${s.done?'var(--navy)':s.active?'#856404':'var(--text-3)'}">${s.label}</span>
+               <div class="mp-step">
+                 <div class="mp-step-bar${s.done?' done':s.active?' active':''}"></div>
+                 <span class="mp-step-lbl${s.done?' done':s.active?' active':''}">${s.label}</span>
                </div>`).join('')}
            </div>`
 
@@ -3519,13 +3195,15 @@ window.loadMyCases = async function() {
         : ''
 
       return `
-        <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:12px">
+        <div class="mp-case-card${cardStateClass}">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
             <span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px;color:${STATUS_COLOR[st]||'#888'};background:${STATUS_BG[st]||'#eee'}">${STATUS_LABEL[st]||st}</span>
+            ${periodBadge}
             <span style="font-size:11px;color:var(--text-3);margin-left:auto">${c.createdAt?.toDate ? c.createdAt.toDate().toLocaleDateString('ja') : ''}</span>
           </div>
-          <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px">${c.title||''}</div>
-          <div style="font-size:12px;color:var(--text-3);margin-bottom:2px">${c.reason||''} ／ 📅 ${datesStr}</div>
+          <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px">${escHtml(c.title||'')}</div>
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:2px">${escHtml(c.reason||'')} ／ 📅 ${escHtml(datesStr)}</div>
+          ${destLine}
           ${progressBar}
           ${deleteBtn}
         </div>`
@@ -3554,8 +3232,23 @@ window.updateMypageDot = updateMypageDot
 const origNav = window.nav
 window.nav = function(page, skipHash) {
   origNav(page, skipHash)
+  // 時間割フローティングウィジェットはホーム画面のみに表示
+  updateTtWidgetVisibility()
   if (page === 'mypage') window.loadMyCases()
   if (page === 'notices') window.loadNotices()
+  // 時間割を開いたら画像を描画＋既読にする（サイドバー・ウィジェットのNEWバッジ消去用）。
+  // Issue #85: PWAキャッシュで古い画像が残る事故を防ぐため、ページ訪問時は
+  // 常に強制再取得（force=true）してから描画する。
+  if (page === 'timetable') {
+    if (window.renderTimetableImages) window.renderTimetableImages(true)
+    if (window._timetableUpdatedAt) {
+      try { localStorage.setItem('timetableSeenAt', window._timetableUpdatedAt) } catch {}
+    }
+    ;['sbBadgeTimetable', 'ttWidgetBadge'].forEach(id => {
+      const badge = document.getElementById(id)
+      if (badge) badge.style.display = 'none'
+    })
+  }
 }
 
 /** ログイン直後に一度だけ申請状況を取得してドットを更新する */
@@ -3585,7 +3278,6 @@ async function renderPushUI() {
   const badge = document.getElementById('pushStatusBadge')
   const text  = document.getElementById('pushStatusText')
   const btn   = document.getElementById('pushToggleBtn')
-  const testRow = document.getElementById('pushTestRow')
   if (!card || !_currentUser) { if (card) card.style.display = 'none'; return }
   // βテスト中は対象外にカードごと非表示（Issue #53）
   try {
@@ -3598,13 +3290,15 @@ async function renderPushUI() {
   if (!avail.supported) {
     if (avail.reason === 'ios-browser') {
       badge.textContent = 'プッシュ通知: 設定が必要'
-      text.innerHTML = 'iPhoneではSafariから「共有 → ホーム画面に追加」し、追加したアプリアイコンから開くと通知を受け取れます。'
+      text.innerHTML = 'iPhoneではホーム画面に追加して、追加したアプリアイコンから開くと通知を受け取れます。'
+      btn.textContent = '通知をオンにする'
+      btn.style.display = ''
+      btn.disabled = false
     } else {
       badge.textContent = 'プッシュ通知: 非対応'
       text.textContent = 'このブラウザはプッシュ通知に対応していません。'
+      btn.style.display = 'none'
     }
-    btn.style.display = 'none'
-    if (testRow) testRow.style.display = 'none'
     return
   }
   btn.style.display = ''
@@ -3615,26 +3309,32 @@ async function renderPushUI() {
       badge.textContent = 'プッシュ通知: ブロック中'
       text.textContent = 'ブラウザ設定で通知を許可してください（iPhone: 設定 → アプリ → 通知）。'
       btn.textContent = '通知をONにする'
-      if (testRow) testRow.style.display = 'none'
     } else if (st.subscribed) {
       badge.textContent = '✓ プッシュ通知: ON'
       text.textContent = '承認完了などのお知らせをこの端末にプッシュ通知します。'
       btn.textContent = '通知をOFFにする'
-      if (testRow) testRow.style.display = ''
     } else {
       badge.textContent = 'プッシュ通知: OFF'
       text.textContent = 'ONにすると承認完了などのお知らせをこの端末にプッシュ通知します。'
       btn.textContent = '通知をONにする'
-      if (testRow) testRow.style.display = 'none'
     }
   } catch {
     badge.textContent = 'プッシュ通知: 確認失敗'
     text.textContent = '状態の確認に失敗しました。'
   }
+
+  // 受け取る通知の選択肢は常に描画（ON/OFFに応じて表示切替）
+  await renderNotifyPrefs()
 }
 
 window.togglePushFront = async function() {
   if (!_currentUser || _pushBusy) return
+  // iPhone のブラウザ（非PWA）では購読不可 → ホーム画面追加の案内を表示
+  const avail = pushAvailability()
+  if (!avail.supported && avail.reason === 'ios-browser') {
+    openInstallSheet('push')
+    return
+  }
   _pushBusy = true
   const btn = document.getElementById('pushToggleBtn')
   const prev = btn ? btn.textContent : ''
@@ -3656,11 +3356,68 @@ window.togglePushFront = async function() {
   }
 }
 
-window.sendTestPushFront = async function() {
+// =============================================
+// マイページ：受け取る通知（Push / LINE 共通の設定）
+// 表示条件: プッシュ通知ON または LINE連携済み のどちらか。
+// 未連携でも「どの通知を受け取るか」を先に選んでおけるよう、
+// どちらも未設定の場合は非表示とする。
+// =============================================
+let _notifyPrefsDirty = false
+
+async function renderNotifyPrefs() {
+  const block = document.getElementById('notifyPrefsBlock')
+  const list  = document.getElementById('notifyPrefsList')
+  if (!block || !list || !_currentUser) { if (block) block.style.display = 'none'; return }
+
+  let pushOn = false
   try {
-    await sendTestPush()
+    const st = await getPushState()
+    pushOn = st.subscribed === true
+  } catch { /* 判定不能ならOFF扱い */ }
+
+  const lineOn = isLinked(_currentProfile)
+
+  // プッシュ・LINEどちらも届かない状態では表示しない
+  if (!pushOn && !lineOn) { block.style.display = 'none'; return }
+
+  const prefs = normalizeNotificationPrefs(
+    (_currentProfile && _currentProfile.notificationPrefs) || DEFAULT_NOTIFICATION_PREFS
+  )
+  // プロフィールに未保存の場合、保存済みの値を取りに行く（初回のみ）
+  if (_currentProfile && !_currentProfile.notificationPrefs && !_notifyPrefsDirty) {
+    try {
+      const saved = await getNotificationPrefs(_currentUser.uid)
+      Object.assign(prefs, saved)
+    } catch { /* ignore */ }
+  }
+
+  list.innerHTML = Object.values(NOTIFICATION_TYPES).map(t =>
+    `<label class="notify-pref-item">
+      <input type="checkbox" data-pref-key="${escH(t.key)}" ${prefs[t.key] ? 'checked' : ''}
+        onchange="toggleNotifyPref('${t.key}')">
+      <span class="notify-pref-check"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+      <span class="notify-pref-label">${escH(t.label)}</span>
+    </label>`
+  ).join('')
+  block.style.display = ''
+}
+
+window.toggleNotifyPref = async function(key) {
+  if (!_currentUser) return
+  if (!NOTIFICATION_TYPES[key]) return
+  const cb = document.querySelector(`#notifyPrefsList input[data-pref-key="${key}"]`)
+  const checked = cb ? cb.checked : true
+  try {
+    const prefs = normalizeNotificationPrefs(
+      (_currentProfile && _currentProfile.notificationPrefs) || {}
+    )
+    prefs[key] = checked
+    const saved = await setNotificationPrefs(_currentUser.uid, prefs)
+    if (_currentProfile) _currentProfile.notificationPrefs = saved
+    _notifyPrefsDirty = true
   } catch (e) {
-    alert('テスト送信に失敗: ' + (e?.message || String(e)))
+    if (cb) cb.checked = !checked
+    alert('設定の保存に失敗しました: ' + (e?.message || String(e)))
   }
 }
 

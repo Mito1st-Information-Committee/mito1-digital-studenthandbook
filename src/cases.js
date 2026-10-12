@@ -7,7 +7,7 @@ import {
   collection, doc, addDoc, updateDoc, getDoc, getDocs, deleteDoc,
   query, where, orderBy, serverTimestamp,
 } from 'firebase/firestore'
-import { notifyStudentPush } from './push.js'
+import { notifyStudentPush, getNotificationPrefs } from './push.js'
 
 // 承認完了時のPWAプッシュ通知（購読済み端末へ。失敗しても承認処理は止めない）
 async function notifyApprovedPush(caseId, caseData) {
@@ -18,10 +18,20 @@ async function notifyApprovedPush(caseId, caseData) {
       body: `${caseData.title || ''}（${datesStr}）`,
       url: '/#mypage',
       tag: `case-approved-${caseId}`,
-    })
+    }, 'approval')
   } catch (e) {
     console.warn('[push-notify] failed:', e)
   }
+}
+
+// LINE通知を送るか（生徒の「受け取る通知」設定で承認完了OFFの場合は送らない）
+async function shouldNotifyLine(studentId) {
+  if (!studentId) return false
+  try {
+    const prefs = await getNotificationPrefs(studentId)
+    return prefs.approval !== false
+  } catch { /* 取得失敗時は送信する（従来動作を維持） */ }
+  return true
 }
 
 // NOTE: "hundbook" might be a typo for "handbook". Please verify against the Worker deployment.
@@ -59,21 +69,37 @@ async function sendEmail(endpoint, payload) {
       body: JSON.stringify(payload),
     })
     if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      console.warn(`[email] ${endpoint} failed (${res.status}):`, body)
-      return { ok: false, status: res.status, detail: body }
+      // Workers は { error, detail, hint } を返す。
+      // hint は「利用者が次に何をすればよいか」を日本語で書いたもの（あれば最優先で表示）。
+      const raw = await res.text().catch(() => '')
+      let hint = ''
+      let detail = raw
+      try {
+        const parsed = JSON.parse(raw)
+        hint = parsed.hint || ''
+        detail = parsed.detail || parsed.error || raw
+      } catch {
+        // JSON でなければ本文をそのまま detail として扱う
+      }
+      console.warn(`[email] ${endpoint} failed (${res.status}):`, raw)
+      return { ok: false, status: res.status, detail, hint }
     }
-    return { ok: true, detail: '' }
+    return { ok: true, status: res.status, detail: '', hint: '' }
   } catch (e) {
     console.warn(`[email] ${endpoint} network error:`, e.message)
-    return { ok: false, status: 0, detail: e.message }
+    return {
+      ok: false,
+      status: 0,
+      detail: e.message,
+      hint: 'ネットワークに接続できませんでした。通信環境を確認して、マイページから再度お試しください。',
+    }
   }
 }
 
 // =============================================
 // ケース作成 + 顧問へ承認依頼メール送信
 // =============================================
-export async function createCase({ studentId, studentName, studentEmail, title, reason, reasonDetail, dates, supervisorEmail, homeRoomEmail }) {
+export async function createCase({ studentId, studentName, studentEmail, title, reason, reasonDetail, dates, supervisorEmail, homeRoomEmail, supervisorName = '', homeRoomName = '' }) {
   const approveToken = genToken()
   const rejectToken  = genToken()
 
@@ -100,6 +126,8 @@ export async function createCase({ studentId, studentName, studentEmail, title, 
     dates,                    // ["2025-06-14", "2025-06-15"]
     supervisorEmail,
     homeRoomEmail,
+    supervisorName: supervisorName || '',
+    homeRoomName: homeRoomName || '',
     status: 'pending_supervisor',
     approveToken,             // 顧問用承認トークン
     rejectToken,              // 顧問用差し戻しトークン
@@ -124,7 +152,12 @@ export async function createCase({ studentId, studentName, studentEmail, title, 
     appBaseUrl: APP_BASE,
   })
 
-  return { caseId: ref.id, emailSent: emailResult.ok, emailError: emailResult.detail }
+  return {
+    caseId: ref.id,
+    emailSent: emailResult.ok,
+    emailError: emailResult.detail,
+    emailHint:  emailResult.hint,
+  }
 }
 
 // =============================================
@@ -235,6 +268,7 @@ export async function processToken(token, action, caseIdFromUrl = null) {
           recipientEmail: caseData.homeRoomEmail,
           recipientRole: 'homeroom',
           supervisorEmail: caseData.supervisorEmail,
+          supervisorName: caseData.supervisorName || '',
           approveToken: hrApproveToken,
           rejectToken:  hrRejectToken,
           appBaseUrl: APP_BASE,
@@ -259,6 +293,7 @@ export async function processToken(token, action, caseIdFromUrl = null) {
           appBaseUrl: APP_BASE,
         })
         // LINEプッシュ通知（担任承認完了時、Messaging API経由）
+        if (await shouldNotifyLine(caseData.studentId)) {
         try {
           let lineUserId = caseData.studentLineUserId || caseData.lineUserId || ''
           if (!lineUserId) {
@@ -284,6 +319,7 @@ export async function processToken(token, action, caseIdFromUrl = null) {
         } catch (e) {
           console.warn('[line-notify] failed:', e)
         }
+        }
         // PWAプッシュ通知（購読済み端末へ）
         await notifyApprovedPush(caseId, caseData)
         return { ok: true, result: 'approved', caseData }
@@ -305,10 +341,23 @@ export async function approveByTeacher(caseId, step, teacherUid) {
   if (step === 'supervisor') {
     const hrApproveToken = genToken()
     const hrRejectToken  = genToken()
+    // 承認した顧問の氏名を取得（担任向けメール・履歴表示用。取得失敗時は申請時の保存名、なければ空文字でフォールバック）
+    // 実際に承認操作した先生を優先し、取得できない場合のみ申請時の保存名を使う
+    let supervisorName = ''
+    try {
+      if (teacherUid) {
+        const teacherSnap = await getDoc(doc(db, 'users', teacherUid))
+        if (teacherSnap.exists()) supervisorName = teacherSnap.data().name || ''
+      }
+    } catch (e) {
+      console.warn('[approveByTeacher] teacher name fetch failed:', e)
+    }
+    if (!supervisorName) supervisorName = caseData.supervisorName || ''
     await updateDoc(caseRef, {
       status: 'pending_homeroom',
       supervisorApprovedAt: serverTimestamp(),
       supervisorUid: teacherUid,
+      supervisorName,
       approveToken: '',
       rejectToken:  '',
       homeRoomApproveToken: hrApproveToken,
@@ -324,6 +373,7 @@ export async function approveByTeacher(caseId, step, teacherUid) {
       recipientEmail: caseData.homeRoomEmail,
       recipientRole: 'homeroom',
       supervisorEmail: caseData.supervisorEmail,
+      supervisorName,
       approveToken: hrApproveToken,
       rejectToken:  hrRejectToken,
       appBaseUrl: APP_BASE,
@@ -344,6 +394,7 @@ export async function approveByTeacher(caseId, step, teacherUid) {
       appBaseUrl: APP_BASE,
     })
     // LINEプッシュ通知（ダッシュボード承認完了時も）
+    if (await shouldNotifyLine(caseData.studentId)) {
     try {
       let lineUserId = caseData.studentLineUserId || caseData.lineUserId || ''
       if (!lineUserId) {
@@ -368,6 +419,7 @@ export async function approveByTeacher(caseId, step, teacherUid) {
       })
     } catch (e) {
       console.warn('[line-notify] dashboard approve failed:', e)
+    }
     }
     // PWAプッシュ通知（購読済み端末へ）
     await notifyApprovedPush(caseId, caseData)

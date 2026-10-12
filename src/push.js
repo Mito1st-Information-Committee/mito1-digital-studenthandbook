@@ -14,7 +14,7 @@
  */
 import { db } from './firebase.js'
 import {
-  doc, setDoc, getDocs, deleteDoc, collection, serverTimestamp,
+  doc, setDoc, getDoc, updateDoc, getDocs, deleteDoc, collection, serverTimestamp,
 } from 'firebase/firestore'
 
 // VAPID公開鍵（Workersの VAPID_PRIVATE_KEY とペア。公開情報なのでコミット可）
@@ -23,6 +23,59 @@ export const VAPID_PUBLIC_KEY =
 
 // Workers のベースURL（line.js / cases.js と同じデプロイ先）
 export const WORKERS_URL = 'https://mito1-hundbook.asanuma-ryuto.workers.dev'
+
+// =============================================
+// 通知種別（受け取る通知の選択肢）
+// 将来Push/LINEで別の通知を配信する場合は、ここに1件追加するだけで
+// 設定シートのチェックボックス・送信側の判定・デフォルトが揃う。
+// =============================================
+export const NOTIFICATION_TYPES = {
+  approval: {
+    key: 'approval',
+    label: '公欠申請の承認完了',
+    default: true,
+  },
+}
+
+export const DEFAULT_NOTIFICATION_PREFS = Object.fromEntries(
+  Object.entries(NOTIFICATION_TYPES).map(([key, t]) => [key, t.default])
+)
+
+/**
+ * 保存されたプレファレンスを正規化する（未知のキーはデフォルト値へ）。
+ * Firestoreに壊れた値が入っていても安全に扱えるようにする。
+ */
+export function normalizeNotificationPrefs(raw) {
+  const out = { ...DEFAULT_NOTIFICATION_PREFS }
+  if (raw && typeof raw === 'object') {
+    for (const key of Object.keys(NOTIFICATION_TYPES)) {
+      if (typeof raw[key] === 'boolean') out[key] = raw[key]
+    }
+  }
+  return out
+}
+
+/**
+ * ユーザーの通知受け取り設定を取得（未保存ならデフォルト）
+ */
+export async function getNotificationPrefs(uid) {
+  if (!uid) return { ...DEFAULT_NOTIFICATION_PREFS }
+  try {
+    const snap = await getDoc(doc(db, 'users', uid))
+    if (snap.exists()) return normalizeNotificationPrefs(snap.data().notificationPrefs)
+  } catch { /* ignore */ }
+  return { ...DEFAULT_NOTIFICATION_PREFS }
+}
+
+/**
+ * ユーザーの通知受け取り設定を保存（マイページの設定シートから）
+ */
+export async function setNotificationPrefs(uid, prefs) {
+  if (!uid) throw new Error('ログインが必要です')
+  const clean = normalizeNotificationPrefs(prefs)
+  await updateDoc(doc(db, 'users', uid), { notificationPrefs: clean })
+  return clean
+}
 
 // =============================================
 // 対応判定
@@ -56,14 +109,16 @@ export function isStandalone() {
  *   reason: 'ok' | 'unsupported' | 'ios-browser'
  */
 export function pushAvailability() {
-  if (!isPushSupported()) {
-    return { supported: false, reason: 'unsupported' }
-  }
   const ios = isIos()
   const standalone = isStandalone()
-  // iPhoneはPWA（ホーム画面追加）でのみWeb Push可
+  // iPhoneはPWA（ホーム画面追加）でのみWeb Push可。
+  // 非PWAのSafariでは PushManager 自体が存在しないことがあるため、
+  // iOS判定を先に行い、ブラウザ表示時は必ず案内を出す。
   if (ios && !standalone) {
     return { supported: false, isIos: true, standalone, reason: 'ios-browser' }
+  }
+  if (!isPushSupported()) {
+    return { supported: false, reason: 'unsupported' }
   }
   return { supported: true, isIos: ios, standalone, reason: 'ok' }
 }
@@ -186,6 +241,29 @@ export async function subscribePush(uid) {
     createdAt: serverTimestamp(),
   }, { merge: true })
 
+  // Push利用フラグを更新し、通知受け取り設定が未保存ならデフォルトで初期化
+  // （管理画面での「Push利用状況」確認用の冗長フィールド）
+  try {
+    const userSnap = await getDoc(doc(db, 'users', uid))
+    const data = userSnap.exists() ? userSnap.data() : {}
+    const patch = { pushEnabled: true }
+    if (!data.notificationPrefs) patch.notificationPrefs = DEFAULT_NOTIFICATION_PREFS
+    await updateDoc(doc(db, 'users', uid), patch)
+  } catch { /* ignore */ }
+
+  // 通知をONにした直後に一度だけテスト通知を送る。
+  // （テスト送信ボタンはサーバー負荷を増やすため設けない — Issue #21）
+  try {
+    await postPush(sub.endpoint, json.keys, {
+      title: 'テスト通知',
+      body: 'プッシュ通知は正常に届いています',
+      url: '/#mypage',
+      tag: 'mito1-test',
+    })
+  } catch (e) {
+    console.warn('[push] test send failed:', e?.message || String(e))
+  }
+
   return { endpoint: sub.endpoint }
 }
 
@@ -214,70 +292,71 @@ export async function unsubscribePush(uid) {
         ))
       } catch { /* ignore */ }
     }
+    // Push未利用フラグを更新（管理画面のPush利用状況表示用）
+    if (uid) {
+      try { await updateDoc(doc(db, 'users', uid), { pushEnabled: false }) } catch { /* ignore */ }
+    }
   } catch (e) {
     throw new Error('通知OFFに失敗しました: ' + (e?.message || String(e)))
   }
 }
 
 // =============================================
-// 送信（テスト用・承認完了通知用）
+// 送信（テスト・承認完了通知用）
 // =============================================
 
-/** 自分の購読へテスト送信（Workers経由） */
-export async function sendTestPush() {
-  const reg = await swRegistration()
-  const sub = await reg.pushManager.getSubscription()
-  if (!sub) throw new Error('先に通知をONにしてください')
-  const j = sub.toJSON()
+/**
+ * 1つの購読へ Workers 経由でプッシュ送信する。
+ * @returns {{ok:boolean, gone?:boolean, detail?:string}}
+ */
+async function postPush(endpoint, keys, payload) {
   const res = await fetch(`${WORKERS_URL}/push/send`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      subscription: {
-        endpoint: sub.endpoint,
-        keys: { p256dh: j.keys.p256dh, auth: j.keys.auth },
-      },
-      payload: {
-        title: 'テスト通知',
-        body: 'PWAプッシュ通知は正常に届いています',
-        url: '/#mypage',
-      },
+      subscription: { endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } },
+      payload,
     }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok || data.ok !== true) {
-    throw new Error(data?.detail || data?.error || `送信失敗 (${res.status})`)
+    return { ok: false, gone: data.gone === true, detail: data?.detail || data?.error || `送信失敗 (${res.status})` }
   }
-  return true
+  return { ok: true }
 }
 
 /**
- * 指定生徒の全購読へ承認完了通知を送る。
+ * 指定生徒の全購読へ通知を送る。
  * 呼び出し側（先生・管理者）の権限で購読一覧を読み、Workersへ1件ずつ送信する。
  * Workersは秘密鍵を持ちFirestoreを読まない設計のため、この方式にしている。
+ * 生徒の「受け取る通知」設定（users.notificationPrefs）を尊重する。
+ * @param {string} type 通知種別（NOTIFICATION_TYPES の key。既定: approval）
  */
-export async function notifyStudentPush(studentId, payload) {
+export async function notifyStudentPush(studentId, payload, type = 'approval') {
   if (!studentId) return { sent: 0 }
+
+  // 通知を受け取らない設定の場合は送信しない
+  const prefs = await getNotificationPrefs(studentId)
+  if (prefs[type] === false) return { sent: 0, disabled: true }
+
   let subs = []
   try {
     const snap = await getDocs(collection(db, 'users', studentId, 'pushSubscriptions'))
-    subs = snap.docs.map(d => d.data()).filter(s => s?.endpoint && s?.keys?.p256dh)
+    subs = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => s?.endpoint && s?.keys?.p256dh)
   } catch {
     return { sent: 0, skipped: true }
   }
+
   let sent = 0
   for (const s of subs) {
     try {
-      const res = await fetch(`${WORKERS_URL}/push/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subscription: { endpoint: s.endpoint, keys: s.keys },
-          payload,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (res.ok && data.ok === true) sent++
+      const result = await postPush(s.endpoint, s.keys, payload)
+      if (result.ok) {
+        sent++
+      } else if (result.gone) {
+        // 購読切れ（404/410）→ Firestoreから掃除
+        await deleteDoc(doc(db, 'users', studentId, 'pushSubscriptions', s.id)).catch(() => {})
+      }
     } catch { /* 次の購読へ */ }
   }
   return { sent, total: subs.length }

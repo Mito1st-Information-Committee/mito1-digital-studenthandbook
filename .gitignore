@@ -3,6 +3,10 @@ dist/
 dist-ssr/
 *.local
 
+# Python
+__pycache__/
+*.pyc
+
 # Logs
 logs
 *.log
@@ -11,6 +15,13 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# Secrets / local backups — never commit
+serviceAccount.json
+firestore-backup*.json
+seed-preview*.json
+.env.local
+.env.*.local
 
 # Editor directories and files
 .vscode/*

@@ -30,8 +30,11 @@ const WORKER_SRC = path.join(__dirname, '..', 'index.js')
 // workers/index.js は Cloudflare Worker のエントリ（export default fetch）なので、
 // テスト対象の純粋関数だけをソースから抜き出して読み込む。
 // --------------------------------------------------------------------------
+// NOTE: encryptAes128gcm が内部で呼ぶヘルパーもすべて列挙すること。
+//       抜けていると「関数は見つかるが実行時に ReferenceError」になる。
 const EXPORTED = [
   'encryptAes128gcm', 'vapidJwt',
+  'generateEcdhKeyPair', 'exportRawPublicKey',
   'concatBytes', 'hkdfExtract', 'hkdfExpand', 'b64urlToBytes', 'bytesToB64url',
 ]
 
