@@ -5,12 +5,18 @@
     {
       "file": "slot-0.jpg",
       "hash": "1ca336514a5356c24919c8365384bbfc57d0a716cfec53673c2f1033ffe3fc0c",
-      "bytes": 37553
+      "bytes": 37553,
+      "width": 337,
+      "height": 190,
+      "vhash": "a307a545b3d700b9"
     },
     {
       "file": "slot-1.jpg",
       "hash": "3a93cabcbdb0adef0a3ebbf3697f25d686d1c30825cd19937e5d2195a133b781",
-      "bytes": 81432
+      "bytes": 81432,
+      "width": 522,
+      "height": 392,
+      "vhash": "5c4ca43fd45730c5"
     }
   ]
 }
