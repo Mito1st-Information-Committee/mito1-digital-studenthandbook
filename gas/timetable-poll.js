@@ -9,9 +9,19 @@
  *   差分がなければ何もしない（Actions の実行履歴を汚さないため）。
  *
  * ■ なぜ URL 比較ではなく中身比較か
- *   sheets-images-rt のトークンは取得ごとに変わる。
- *   別トークンの URL を落として比べるとバイト単位で完全一致するため、
- *   必ずダウンロード→SHA-256 比較すること。
+ *   sheets-images-rt のトークンは取得ごとに変わるため、
+ *   URL文字列の比較では毎回「差分あり」になってしまう。
+ *
+ * ■ なぜ厳密なバイト一致で判定しないか（2026-10 追記）
+ *   Google側の画像プロキシがJPEGを再エンコードするようになり、
+ *   同じ見た目でも取得ごとに数十バイト変わり sha256 が反転する
+ *   （例: 81432⇔81439 bytesで10分おきの誤dispatchを確認）。
+ *   GASには画像デコード手段がないため、ここでは枚数＋サイズ許容
+ *   （2KBまたは5%以内の差は無視）で「たぶん変わった」ときだけ送り、
+ *   真の判定は Actions 側 timetable_sync.py の画素比較に任せる。
+ *   サイズ不変の実更新の見逃しに備えて6回に1回は無条件送出する
+ *   （heartbeat。変化なしならActions側が何もしないので安全）。
+ *   送信失敗時は基準状態を更新せず次回リトライさせる。
  *
  * ■ 設置方法（初回のみ手作業）
  *   1. https://script.google.com で新規プロジェクト → このファイルの内容を貼り付け
@@ -41,26 +51,61 @@ function pollTimetable() {
   const pat = props.getProperty('GH_PAT');
   if (!pat) throw new Error('GH_PAT未設定');
 
-  // シートの画像を落としてハッシュ化（トークンは回転するため中身で比較）
+  // シートの画像を落として比較する。トークンは回転するためURL比較は不可。
+  // バイト厳密一致は再エンコード微差で毎回変わるため、枚数＋サイズ許容で判定する。
   const html = UrlFetchApp.fetch(
     'https://docs.google.com/spreadsheets/u/0/d/1fdSGqT1s2kit91TcQV_mjcuvOawGAU6JZ_5N684bH3U/htmlview/sheet?headers=false&gid=0&pli=1'
   ).getContentText('utf-8');
   const urls = [...new Set(
     [...html.matchAll(/<img[^>]+src="(https:\/\/docs\.google\.com\/sheets-images-rt\/[^"]+)"/g)].map(m => m[1])
   )];
-  const hashes = urls.map(u => {
+  const sizes = urls.map(u => {
     Utilities.sleep(1000);
     const bytes = UrlFetchApp.fetch(u).getContent();
-    return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes)
-      .map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
-  }).sort().join(',');
-  Logger.log('current: ' + hashes.slice(0, 32) + '...');
+    return bytes.length;
+  }).sort((a, b) => a - b);
+  Logger.log('current: count=' + sizes.length + ' sizes=' + sizes.join(','));
 
-  if (hashes === props.getProperty('LAST_HASHES')) {
+  // 前回との比較（許容: 各画像 2KBまたは5%以内の差は再エンコード微差とみなす）
+  // ただしサイズ不変の実更新を見逃す可能性があるため、6回に1回は
+  // 無条件でdispatchする（heartbeat。真の判定はActions側の画素比較が行い、
+  // 変化なしなら何もしないので安全）。Actionsのscheduleが止まる事象が
+  // あったため、GASだけが頼りの場合の取りこぼし防止にもなる。
+  const HEARTBEAT_EVERY = 6;
+  let changed = false;
+  let heartbeat = false;
+  let prev = null;
+  try { prev = JSON.parse(props.getProperty('LAST_STATE') || 'null'); } catch (e) { prev = null; }
+  if (!prev || !Array.isArray(prev.sizes) || prev.sizes.length !== sizes.length) {
+    changed = sizes.length > 0; // 枚数が変われば変化（0枚の取得失敗時は送らない）
+    if (sizes.length === 0) {
+      Logger.log('no images → skip (fetch failure?)');
+      return;
+    }
+  } else {
+    for (let i = 0; i < sizes.length; i++) {
+      const a = prev.sizes[i], b = sizes[i];
+      const tol = Math.max(2048, Math.floor(a * 0.05));
+      if (Math.abs(a - b) > tol) { changed = true; break; }
+    }
+  }
+  const pollCount = (parseInt(props.getProperty('POLL_COUNT') || '0', 10) || 0) + 1;
+  props.setProperty('POLL_COUNT', String(pollCount));
+  if (!changed && pollCount % HEARTBEAT_EVERY === 0) {
+    heartbeat = true;
+    Logger.log('heartbeat dispatch (poll #' + pollCount + ')');
+  }
+  // 旧キーで止まっている場合の取り残し防止（次回からは使わない）
+  try { props.deleteProperty('LAST_HASHES'); } catch (e) {}
+
+  if (!changed && !heartbeat) {
+    // 変化なし・heartbeat対象外のときだけ基準状態を更新する。
+    // dispatchを伴う場合は成功（204）後に更新し、失敗時は前回状態を
+    // 残して次回リトライさせる。
+    props.setProperty('LAST_STATE', JSON.stringify({ sizes: sizes }));
     Logger.log('no change → skip');
     return;
   }
-  props.setProperty('LAST_HASHES', hashes);
 
   const res = UrlFetchApp.fetch(
     'https://api.github.com/repos/Ryuto-dev/mito1-digital-studenthandbook/dispatches',
@@ -77,4 +122,7 @@ function pollTimetable() {
   );
   Logger.log(res.getResponseCode());
   if (res.getResponseCode() !== 204) throw new Error(res.getContentText().slice(0, 200));
+  // dispatch成功後に基準状態を更新する。失敗時は前回状態を残すため、
+  // 次回pollが同じ更新を再送する（リトライになる）。
+  props.setProperty('LAST_STATE', JSON.stringify({ sizes: sizes }));
 }

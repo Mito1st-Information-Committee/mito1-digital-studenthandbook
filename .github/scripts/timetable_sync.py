@@ -13,6 +13,14 @@
   （sha256一致を確認済み）。URL文字列の比較では毎回「差分あり」に
   なってしまうため、必ずダウンロード→ハッシュ比較すること。
 
+■ なぜバイト比較ではなく見た目比較か（2026-10 追記）
+  Google側の画像プロキシがJPEGを再エンコードするようになり、
+  同じ見た目の画像でも取得ごとに数十バイト〜数百バイトが変わり
+  sha256が交互に反転する事象を確認（例: 81432⇔81439 bytesで
+  毎回「更新あり」になり10分おきの誤コミット・誤Pushが発生）。
+  そのためバイト一致は「高速な候補判定」に留め、最終判定は
+  デコード後の画素比較（平均絶対差分 < 閾値）で行うこと。
+
 ■ 使い方
   python .github/scripts/timetable_sync.py   # リポジトリルートで実行
 
@@ -24,6 +32,7 @@
 """
 
 import hashlib
+import io
 import json
 import os
 import sys
@@ -110,6 +119,222 @@ def sniff_ext(blob):
     return "bin"
 
 
+# -------------------------------------------------------------------
+# 見た目比較（JPEG再エンコードの微差を無視するための画素比較）
+# -------------------------------------------------------------------
+# 同じ見た目の取得で平均絶対差分 0.0003・最大差分 2/255・有意差画素0だった
+# 実測に対し、平均 0.5/255・有意差チャンネル率 0.02%・有意差画素10pxを閾値にする。
+# 10x10pxの白黒反転のような小局所編集でも有意差画素が100出るため検出できる。
+# 見逃し（未通知）より誤検出（余分な1コミット）を許容する側に倒している。
+VISUAL_MEAN_THRESHOLD = float(os.environ.get("TIMETABLE_VISUAL_THRESHOLD", "0.5"))
+# チャンネル差30以上を「有意差」とし、この割合が0.02%を超えたら変化とみなす
+VISUAL_SIG_DIFF = 30
+VISUAL_SIG_FRACTION = 0.0002
+# いずれかのチャンネル差が30以上の画素がこの数を超えたら変化とみなす
+VISUAL_SIG_PIXELS = int(os.environ.get("TIMETABLE_VISUAL_SIG_PIXELS", "10"))
+
+
+def _decode_rgb(blob):
+    """画像バイトをRGBのPIL Imageにデコードする。失敗時はNone."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        img = Image.open(io.BytesIO(blob)).convert("RGB")
+        return img
+    except Exception:
+        return None
+
+
+def visual_mean_diff(blob_a, blob_b):
+    """2画像の平均絶対差分（0〜255）。デコード不可時はNone.
+
+    サイズが違えば見た目が違うとみなして inf を返す。
+    """
+    ia, ib = _decode_rgb(blob_a), _decode_rgb(blob_b)
+    if ia is None or ib is None:
+        return None
+    if ia.size != ib.size:
+        return float("inf")
+    ha, hb = ia.tobytes(), ib.tobytes()
+    if len(ha) != len(hb):
+        return float("inf")
+    # バイト列の差分合計を画素数×3chで割る
+    total = 0
+    # memoryviewで高速化（200KB級ならそのまま回しても十分速い）
+    mv_a, mv_b = memoryview(ha), memoryview(hb)
+    for x, y in zip(mv_a, mv_b):
+        total += abs(x - y)
+    return total / len(ha)
+
+
+def visual_equal(blob_a, blob_b):
+    """見た目が同じならTrue。判定不能時（PILなし等）はバイト比較に fallback."""
+    if blob_a == blob_b:
+        return True
+    stat = visual_diff_stat(blob_a, blob_b)
+    if stat is None:
+        return False
+    mean, sig_frac, sig_pixels = stat
+    if mean > VISUAL_MEAN_THRESHOLD:
+        return False
+    if sig_frac > VISUAL_SIG_FRACTION:
+        return False
+    if sig_pixels > VISUAL_SIG_PIXELS:
+        return False
+    return True
+
+
+def visual_diff_stat(blob_a, blob_b):
+    """2画像の差分統計 (平均絶対差分, 有意差チャンネル率, 有意差画素数) を返す.
+
+    デコード不可時はNone、サイズ不一致時は (inf, inf, inf) を返す。
+    有意差画素 = いずれかのチャンネル差が VISUAL_SIG_DIFF 以上の画素。
+    """
+    ia, ib = _decode_rgb(blob_a), _decode_rgb(blob_b)
+    if ia is None or ib is None:
+        return None
+    if ia.size != ib.size:
+        return (float("inf"), float("inf"), float("inf"))
+    ha, hb = ia.tobytes(), ib.tobytes()
+    if len(ha) != len(hb):
+        return (float("inf"), float("inf"), float("inf"))
+    total = 0
+    sig_channels = 0
+    sig_pixels = 0
+    mv_a, mv_b = memoryview(ha), memoryview(hb)
+    # 3chずつ（1画素ずつ）処理する
+    for i in range(0, len(ha), 3):
+        px_max = 0
+        for c in range(3):
+            d = abs(mv_a[i + c] - mv_b[i + c])
+            total += d
+            if d >= VISUAL_SIG_DIFF:
+                sig_channels += 1
+            if d > px_max:
+                px_max = d
+        if px_max >= VISUAL_SIG_DIFF:
+            sig_pixels += 1
+    n_channels = len(ha)
+    return (total / n_channels, sig_channels / n_channels, sig_pixels)
+
+
+def _max_match_count(adj, n, m):
+    """隣接行列adj(n×m)に対する最大二部マッチングのサイズ（Kuhn法）."""
+    match_to_new = [-1] * m
+
+    def try_match(i, seen):
+        for j in range(m):
+            if adj[i][j] and not seen[j]:
+                seen[j] = True
+                if match_to_new[j] == -1 or try_match(match_to_new[j], seen):
+                    match_to_new[j] = i
+                    return True
+        return False
+
+    matched = 0
+    for i in range(n):
+        if try_match(i, [False] * m):
+            matched += 1
+    return matched
+
+
+def images_visually_matched(new_blobs, old_blobs):
+    """新旧の画像群が見た目上一致するか（順序入れ替わりを許容）.
+
+    完全な1対1対応が存在するときのみTrue（貪欲法ではなく最大マッチング）。
+    枚数が違えば不一致。
+    """
+    if len(new_blobs) != len(old_blobs):
+        return False
+    if not new_blobs:
+        return True
+    adj = [[visual_equal(nb, ob) for ob in old_blobs] for nb in new_blobs]
+    return _max_match_count(adj, len(new_blobs), len(old_blobs)) == len(new_blobs)
+
+
+def images_visually_subset(new_blobs, old_blobs):
+    """newの各画像がoldの相異なる画像に見た目一致すればTrue.
+
+    枚数削減のみの更新（通知不要）の判定用。newが空ならTrue。
+    """
+    if len(new_blobs) > len(old_blobs):
+        return False
+    if not new_blobs:
+        return True
+    adj = [[visual_equal(nb, ob) for ob in old_blobs] for nb in new_blobs]
+    return _max_match_count(adj, len(new_blobs), len(old_blobs)) == len(new_blobs)
+
+
+def visual_signature(blob):
+    """マニフェスト保存用の見た目署名（幅・高さ・縮小画素ハッシュ）.
+
+    将来の高速比較用。デコード不可時はNone。
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        img = Image.open(io.BytesIO(blob)).convert("RGB")
+        w, h = img.size
+        thumb = img.resize((32, 32)).tobytes()
+        vhash = hashlib.sha256(thumb).hexdigest()[:16]
+        return {"width": w, "height": h, "vhash": vhash}
+    except Exception:
+        return None
+
+
+def backfill_signatures_if_missing(manifest):
+    """マニフェストの width/height/vhash 欠落をディスク画像から補完する.
+
+    書き換えたらTrue（呼び出し側は通知なしのchangedとして扱うこと）。
+    """
+    imgs = manifest.get("images", []) if manifest else []
+    if not imgs:
+        return False
+    if all(all(k in im for k in ("width", "height", "vhash")) for im in imgs):
+        return False
+    changed = False
+    for im in imgs:
+        if all(k in im for k in ("width", "height", "vhash")):
+            continue
+        try:
+            sig = visual_signature((OUT_DIR / im["file"]).read_bytes())
+        except Exception:
+            sig = None
+        if sig:
+            im.update(sig)
+            changed = True
+    if changed:
+        (OUT_DIR / MANIFEST_NAME).write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+        log("署名(width/height/vhash)をバックフィルした（通知なし）")
+    return changed
+
+
+def _unchanged_result(old_manifest, count, reason="unchanged"):
+    """更新なし時の戻り値を組み立てる.
+
+    履歴の初回補完・署名の欠落補完でマニフェストを書き換えた場合は
+    changed=True・通知なしで返す（コミットはするがPushはしない）。
+    """
+    try:
+        if old_manifest and backfill_today_history_if_empty(old_manifest):
+            return {"changed": True, "notify": False, "count": count,
+                    "updatedAt": old_manifest.get("updatedAt", ""), "reason": "backfill-history"}
+    except Exception as e:
+        log(f"バックフィルに失敗（無視）: {e}")
+    try:
+        if old_manifest and backfill_signatures_if_missing(old_manifest):
+            return {"changed": True, "notify": False, "count": count,
+                    "updatedAt": old_manifest.get("updatedAt", ""), "reason": "backfill-signature"}
+    except Exception as e:
+        log(f"署名バックフィルに失敗（無視）: {e}")
+    return {"changed": False, "reason": reason, "count": count}
+
+
 def sync():
     log(f"GET {SHEET_URL}")
     html = fetch(SHEET_URL).decode("utf-8", errors="replace")
@@ -119,6 +344,7 @@ def sync():
         return {"changed": False, "reason": "no-images"}
 
     # ダウンロード→ハッシュ化（トークンが回転するため中身で比較する）
+    # バイト一致は高速な一次判定。最終判定は下の見た目比較で行う。
     images = []
     seen_hashes = set()
     for i, url in enumerate(urls):
@@ -127,6 +353,20 @@ def sync():
         digest = hashlib.sha256(blob).hexdigest()
         if digest in seen_hashes:
             log(f"{i}枚目: 内容が重複のためスキップ")
+            continue
+        # 同一シート内の重複を見た目でも除去（再エンコードでバイトが
+        # 微差でも見た目が同じ別URLは1枚にまとめる）
+        dup = False
+        for kept in images:
+            try:
+                if visual_equal(blob, kept["blob"]):
+                    log(f"{i}枚目: 見た目が重複のためスキップ")
+                    dup = True
+                    break
+            except Exception:
+                pass
+        if dup:
+            seen_hashes.add(digest)
             continue
         seen_hashes.add(digest)
         images.append({"blob": blob, "hash": digest, "bytes": len(blob),
@@ -153,17 +393,47 @@ def sync():
     # 枚数が減って残りが旧集合の部分集合の場合は、表示からは消すが
     # 通知はしない（Schedule_Bot の「枚数が減っただけなので終了」と同旨）。
     new_set, old_set = set(new_hashes), set(old_hashes)
+    # 旧画像バイト（見た目比較用）。マニフェストと実ファイルが揃っている場合のみ。
+    old_blobs = []
+    if old_files_ok and old_manifest and old_manifest.get("images"):
+        try:
+            for im in old_manifest["images"]:
+                p = OUT_DIR / im["file"]
+                if p.exists():
+                    old_blobs.append(p.read_bytes())
+        except Exception as e:
+            log(f"旧画像の読み込みに失敗（バイト判定のみ使う）: {e}")
+            old_blobs = []
+    new_blobs = [im["blob"] for im in images]
+    old_blobs_ok = (
+        bool(old_blobs)
+        and old_manifest is not None
+        and len(old_blobs) == len(old_manifest.get("images", []))
+    )
+
     if new_set == old_set and old_files_ok:
         log("ハッシュ一致 → 更新なし")
-        # 導入直後で履歴が空の場合のみ今日分を補完する（要コミットのためchanged扱い・通知なし）
-        try:
-            if old_manifest and backfill_today_history_if_empty(old_manifest):
-                return {"changed": True, "notify": False, "count": len(images),
-                        "updatedAt": old_manifest.get("updatedAt", ""), "reason": "backfill-history"}
-        except Exception as e:
-            log(f"バックフィルに失敗（無視）: {e}")
-        return {"changed": False, "reason": "unchanged", "count": len(images)}
-    notify = not (new_set < old_set)
+        return _unchanged_result(old_manifest, len(images))
+    # バイト差があっても見た目が同じなら再エンコードの微差とみなして更新なし。
+    # （2026-10に毎回81432⇔81439 bytesで反転する誤検出を確認したため）
+    if old_blobs_ok and images_visually_matched(new_blobs, old_blobs):
+        log("見た目が一致（再エンコードの微差） → 更新なし")
+        return _unchanged_result(old_manifest, len(images), reason="unchanged-visual")
+    # 診断用に差分量を1件だけ出す
+    try:
+        if len(new_blobs) == len(old_blobs) and new_blobs and old_blobs:
+            stat = visual_diff_stat(new_blobs[0], old_blobs[0])
+            log(f"見た目差分あり mean={stat[0]:.4f} sig_frac={stat[1]:.6f} sig_pixels={stat[2]}"
+                if stat else "見た目差分あり（判定不能）")
+    except Exception:
+        pass
+    # 削減のみの更新ではPushしない（表示の同期はする）。
+    # バイト集合の部分集合に加え、残存画像が再エンコード微差の場合も
+    # 見た目部分集合で判定する（1枚の旧画像が複数新画像に割当たらないようdistinctに）。
+    removal_only = (bool(old_hashes) and new_set < old_set)
+    if not removal_only and old_blobs_ok and len(new_blobs) < len(old_blobs):
+        removal_only = images_visually_subset(new_blobs, old_blobs)
+    notify = not removal_only
     if not notify:
         log("画像が減っただけ → 表示は更新するが通知はしない")
 
@@ -184,7 +454,14 @@ def sync():
     for i, im in enumerate(images):
         fname = f"slot-{i}.{im['ext']}"
         (OUT_DIR / fname).write_bytes(im["blob"])
-        entries.append({"file": fname, "hash": im["hash"], "bytes": im["bytes"]})
+        entry = {"file": fname, "hash": im["hash"], "bytes": im["bytes"]}
+        try:
+            sig = visual_signature(im["blob"])
+            if sig:
+                entry.update(sig)
+        except Exception:
+            pass
+        entries.append(entry)
     for stale in OUT_DIR.glob("slot-*.*"):
         if stale.name != MANIFEST_NAME and stale.name not in {e["file"] for e in entries}:
             stale.unlink()
@@ -252,7 +529,19 @@ def archive_snapshot(now, manifest, images, date_str=None):
             data = src.read_bytes()
             dest.write_bytes(data)
             size = len(data)
-        hentries.append({"file": fname, "hash": im["hash"], "bytes": im.get("bytes", size)})
+            blob = data
+        entry = {"file": fname, "hash": im["hash"], "bytes": im.get("bytes", size)}
+        # 旧マニフェスト由来で署名が無い場合は今のバイトから作る
+        sig_keys = {k: im[k] for k in ("width", "height", "vhash") if k in im}
+        if not sig_keys and blob is not None:
+            try:
+                sig = visual_signature(blob)
+                if sig:
+                    sig_keys = sig
+            except Exception:
+                pass
+        entry.update(sig_keys)
+        hentries.append(entry)
     # 日付フォルダ内の古いslotファイルを掃除
     for stale in hdir.glob("slot-*.*"):
         if stale.name not in {e["file"] for e in hentries}:
