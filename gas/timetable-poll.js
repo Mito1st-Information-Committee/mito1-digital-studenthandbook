@@ -19,8 +19,9 @@
  *   GASには画像デコード手段がないため、ここでは枚数＋サイズ許容
  *   （2KBまたは5%以内の差は無視）で「たぶん変わった」ときだけ送り、
  *   真の判定は Actions 側 timetable_sync.py の画素比較に任せる。
- *   GASが見逃しても Actions の schedule（10分おき）が拾うので、
- *   誤検出（spam）を減らす側に倒してよい。
+ *   サイズ不変の実更新の見逃しに備えて6回に1回は無条件送出する
+ *   （heartbeat。変化なしならActions側が何もしないので安全）。
+ *   送信失敗時は基準状態を更新せず次回リトライさせる。
  *
  * ■ 設置方法（初回のみ手作業）
  *   1. https://script.google.com で新規プロジェクト → このファイルの内容を貼り付け
@@ -66,7 +67,13 @@ function pollTimetable() {
   Logger.log('current: count=' + sizes.length + ' sizes=' + sizes.join(','));
 
   // 前回との比較（許容: 各画像 2KBまたは5%以内の差は再エンコード微差とみなす）
+  // ただしサイズ不変の実更新を見逃す可能性があるため、6回に1回は
+  // 無条件でdispatchする（heartbeat。真の判定はActions側の画素比較が行い、
+  // 変化なしなら何もしないので安全）。Actionsのscheduleが止まる事象が
+  // あったため、GASだけが頼りの場合の取りこぼし防止にもなる。
+  const HEARTBEAT_EVERY = 6;
   let changed = false;
+  let heartbeat = false;
   let prev = null;
   try { prev = JSON.parse(props.getProperty('LAST_STATE') || 'null'); } catch (e) { prev = null; }
   if (!prev || !Array.isArray(prev.sizes) || prev.sizes.length !== sizes.length) {
@@ -82,12 +89,20 @@ function pollTimetable() {
       if (Math.abs(a - b) > tol) { changed = true; break; }
     }
   }
-  // 状態は毎回更新（微差ドリフトを溜めない）
-  props.setProperty('LAST_STATE', JSON.stringify({ sizes: sizes }));
+  const pollCount = (parseInt(props.getProperty('POLL_COUNT') || '0', 10) || 0) + 1;
+  props.setProperty('POLL_COUNT', String(pollCount));
+  if (!changed && pollCount % HEARTBEAT_EVERY === 0) {
+    heartbeat = true;
+    Logger.log('heartbeat dispatch (poll #' + pollCount + ')');
+  }
   // 旧キーで止まっている場合の取り残し防止（次回からは使わない）
   try { props.deleteProperty('LAST_HASHES'); } catch (e) {}
 
-  if (!changed) {
+  if (!changed && !heartbeat) {
+    // 変化なし・heartbeat対象外のときだけ基準状態を更新する。
+    // dispatchを伴う場合は成功（204）後に更新し、失敗時は前回状態を
+    // 残して次回リトライさせる。
+    props.setProperty('LAST_STATE', JSON.stringify({ sizes: sizes }));
     Logger.log('no change → skip');
     return;
   }
@@ -107,4 +122,7 @@ function pollTimetable() {
   );
   Logger.log(res.getResponseCode());
   if (res.getResponseCode() !== 204) throw new Error(res.getContentText().slice(0, 200));
+  // dispatch成功後に基準状態を更新する。失敗時は前回状態を残すため、
+  // 次回pollが同じ更新を再送する（リトライになる）。
+  props.setProperty('LAST_STATE', JSON.stringify({ sizes: sizes }));
 }
