@@ -1,14 +1,14 @@
 {
-  "updatedAt": "2026-11-26T17:45:44+09:00",
-  "updatedAtLabel": "2026年11月26日 17:45更新",
+  "updatedAt": "2026-11-27T14:55:54+09:00",
+  "updatedAtLabel": "2026年11月27日 14:55更新",
   "images": [
     {
       "file": "slot-0.jpg",
-      "hash": "ae320a30b25864f4b5c9c06b81c58522d20a9ac0bb3f64012a046d1afb6bfd09",
-      "bytes": 79894,
+      "hash": "b13020f3ad1f7f6906c000161a37486431155fcdda4bfcd0d0afed8cc1bc09e6",
+      "bytes": 85717,
       "width": 444,
       "height": 333,
-      "vhash": "3c5ad13d67c668f4"
+      "vhash": "b81f251eb0404786"
     }
   ]
 }
